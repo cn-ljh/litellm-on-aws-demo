@@ -34,22 +34,74 @@ Resources:
       LogGroupName: !Sub "/ecs/${ProjectName}"
       RetentionInDays: 30
 
-  # --- ALB Security Group ---
+  # --- Lookup CloudFront managed prefix list (region-portable) ---
+  CloudFrontPrefixListLookup:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt PrefixListLookupFunction.Arn
+      PrefixListName: com.amazonaws.global.cloudfront.origin-facing
+
+  PrefixListLookupRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-prefixlist-lookup-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DescribePrefixLists
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ec2:DescribeManagedPrefixLists
+                Resource: "*"
+
+  PrefixListLookupFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-prefixlist-lookup"
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 30
+      Role: !GetAtt PrefixListLookupRole.Arn
+      Code:
+        ZipFile: |
+          import boto3, json
+          import cfnresponse
+          def handler(event, context):
+            if event['RequestType'] == 'Delete':
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              return
+            try:
+              ec2 = boto3.client('ec2')
+              name = event['ResourceProperties']['PrefixListName']
+              resp = ec2.describe_managed_prefix_lists(
+                Filters=[{'Name': 'prefix-list-name', 'Values': [name]}]
+              )
+              pl_id = resp['PrefixLists'][0]['PrefixListId']
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, {'PrefixListId': pl_id})
+            except Exception as e:
+              cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+
+  # --- ALB Security Group (CloudFront only) ---
   ALBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: "Allow HTTP/HTTPS to ALB"
+      GroupDescription: "Allow HTTP to ALB from CloudFront only"
       VpcId: !ImportValue
         Fn::Sub: "${ProjectName}-VpcId"
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
-          CidrIp: "0.0.0.0/0"
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: "0.0.0.0/0"
+          SourcePrefixListId: !GetAtt CloudFrontPrefixListLookup.PrefixListId
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-alb-sg"
