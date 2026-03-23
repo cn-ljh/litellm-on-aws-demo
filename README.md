@@ -59,6 +59,24 @@ curl http://<YOUR-ALB-DNS>/chat/completions \
 
 Bedrock models use IAM Task Role (no API key needed). Other providers require API keys in Secrets Manager.
 
+## Audit Logging (DynamoDB)
+
+All API calls (success and failure) are logged to DynamoDB table `litellm-gw-audit-log`.
+
+Each record includes: request id, model, messages, response, token usage, timestamps, caller metadata.
+
+```bash
+# Check audit log count
+aws dynamodb scan --table-name litellm-gw-audit-log --region us-east-1 --select COUNT
+
+# View recent logs
+aws dynamodb scan --table-name litellm-gw-audit-log --region us-east-1 --max-items 5 \
+  --projection-expression "id, model, call_type, startTime, #u" \
+  --expression-attribute-names '{"#u":"usage"}'
+```
+
+Table features: PAY_PER_REQUEST billing, TTL support, Point-in-Time Recovery enabled.
+
 ## Update API Keys
 
 ```bash
@@ -88,7 +106,7 @@ aws ecs update-service --cluster litellm-gw-cluster --service litellm-gw-service
 |---|---|
 | `litellm-gw-vpc` | VPC, 2 public + 2 private subnets, IGW, NAT GW |
 | `litellm-gw-secrets` | Secrets Manager (tenant/provider namespace) |
-| `litellm-gw-data` | RDS PostgreSQL, ElastiCache Redis Serverless, S3 config bucket |
+| `litellm-gw-data` | RDS PostgreSQL, ElastiCache Redis Serverless, S3 config bucket, DynamoDB audit log |
 | `litellm-gw-ecs` | ECS Fargate cluster, ALB, Task Definition, CloudWatch logs |
 | `litellm-gw-cloudfront` | CloudFront distribution (HTTPS, HTTP/2+3) |
 

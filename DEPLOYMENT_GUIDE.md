@@ -27,10 +27,10 @@
                        │  │  └──┬──────┬──────┬┘                       │    │
                        │  │     │      │      │                         │    │
                        │  │     ▼      ▼      ▼                         │    │
-                       │  │  ┌─────┐┌─────┐┌──────────┐                │    │
-                       │  │  │ RDS ││Redis││ Bedrock  │                │    │
-                       │  │  │ PG  ││ TLS ││ (IAM)   │                │    │
-                       │  │  └─────┘└─────┘└──────────┘                │    │
+                       │  │  ┌─────┐┌─────┐┌──────────┐┌──────────┐   │    │
+                       │  │  │ RDS ││Redis││ Bedrock  ││ DynamoDB │   │    │
+                       │  │  │ PG  ││ TLS ││ (IAM)   ││ (审计)   │   │    │
+                       │  │  └─────┘└─────┘└──────────┘└──────────┘   │    │
                        │  └────────────────────────────────────────────┘    │
                        └─────────────────────────────────────────────────────┘
 ```
@@ -48,6 +48,7 @@
 | 密钥管理 | Secrets Manager | 按租户/提供商命名空间管理 |
 | 配置存储 | S3 | 版本化, 加密 |
 | 日志 | CloudWatch Logs | 保留 30 天 |
+| 审计日志 | DynamoDB | 按需计费, 记录所有 API 调用详情 |
 
 ---
 
@@ -97,7 +98,7 @@ litellm-gw/
 ├── cfn/                           # CloudFormation 模板
 │   ├── 01-vpc.yaml                #   网络层: VPC, 子网, NAT, 路由
 │   ├── 02-secrets.yaml            #   密钥层: Secrets Manager
-│   ├── 03-data.yaml               #   数据层: RDS, Redis, S3
+│   ├── 03-data.yaml               #   数据层: RDS, Redis, S3, DynamoDB
 │   ├── 04-ecs.yaml                #   应用层: ECS, ALB, IAM, CloudWatch
 │   └── 05-cloudfront.yaml         #   CDN层: CloudFront HTTPS 加速
 ├── config/
@@ -310,7 +311,48 @@ aws ecs update-service \
   --region us-east-1
 ```
 
-### 7.2 查看日志
+### 7.2 审计日志 (DynamoDB)
+
+所有 API 调用（成功和失败）都会自动记录到 DynamoDB 表 `litellm-gw-audit-log`。
+
+**查看审计日志总数:**
+
+```bash
+aws dynamodb scan --table-name litellm-gw-audit-log \
+  --region us-east-1 --select COUNT
+```
+
+**查看最近的审计日志:**
+
+```bash
+aws dynamodb scan --table-name litellm-gw-audit-log \
+  --region us-east-1 --max-items 5 \
+  --projection-expression "id, model, call_type, startTime, #u" \
+  --expression-attribute-names '{"#u":"usage"}'
+```
+
+**记录的字段:**
+
+| 字段 | 说明 |
+|---|---|
+| `id` | 请求唯一标识 (partition key) |
+| `startTime` | 请求开始时间 (sort key) |
+| `call_type` | 调用类型 (acompletion, aembedding 等) |
+| `model` | 使用的模型 |
+| `messages` | 请求消息内容 |
+| `response` | 模型响应 |
+| `usage` | Token 使用量 |
+| `metadata` | 请求元数据 (来源 IP, API key 信息等) |
+| `modelParameters` | 请求参数 |
+| `endTime` | 请求结束时间 |
+
+**数据管理:**
+
+- 表已启用 **TTL** 字段 (`ttl`)，可通过设置 TTL 值自动过期数据
+- 已启用 **Point-in-Time Recovery (PITR)**，支持任意时间点恢复
+- 使用 **按需计费 (PAY_PER_REQUEST)**，无需预估容量
+
+### 7.3 查看应用日志
 
 ```bash
 # 实时追踪最近日志
@@ -326,7 +368,7 @@ aws logs filter-log-events \
 
 也可在 AWS 控制台中通过 **CloudWatch -> Log groups -> /ecs/litellm-gw** 查看。
 
-### 7.3 扩缩容
+### 7.4 扩缩容
 
 ```bash
 # 调整副本数（示例: 扩展到 4 个）
@@ -337,7 +379,7 @@ aws ecs update-service \
   --region us-east-1
 ```
 
-### 7.4 查看 CloudFormation 堆栈状态
+### 7.5 查看 CloudFormation 堆栈状态
 
 ```bash
 aws cloudformation describe-stacks \

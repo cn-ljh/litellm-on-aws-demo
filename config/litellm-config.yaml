@@ -64,3 +64,6 @@ litellm_settings:
     host: os.environ/REDIS_HOST
     port: os.environ/REDIS_PORT
     ssl: true
+  success_callback: ["dynamodb"]
+  failure_callback: ["dynamodb"]
+  dynamodb_table_name: litellm-gw-audit-log

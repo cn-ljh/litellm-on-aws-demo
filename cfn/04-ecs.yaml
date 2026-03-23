@@ -255,6 +255,16 @@ Resources:
                   - "arn:aws:s3:::${Bucket}/*"
                   - Bucket: !ImportValue
                       Fn::Sub: "${ProjectName}-ConfigBucketName"
+        - PolicyName: DynamoDBAuditLogAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:BatchWriteItem
+                Resource: !ImportValue
+                  Fn::Sub: "${ProjectName}-AuditLogTableArn"
 
   # --- ECS Cluster ---
   ECSCluster:
@@ -316,6 +326,8 @@ Resources:
             - Name: REDIS_SSL
               Value: "true"
             - Name: AWS_DEFAULT_REGION
+              Value: !Ref AWS::Region
+            - Name: AWS_REGION_NAME
               Value: !Ref AWS::Region
           Secrets:
             - Name: DATABASE_PASSWORD
