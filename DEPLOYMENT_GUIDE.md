@@ -262,7 +262,7 @@ curl https://<CLOUDFRONT_DOMAIN>/chat/completions \
   -H "Authorization: Bearer <MASTER_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "bedrock-claude-opus",
+    "model": "claude-opus-4-6",
     "messages": [
       {"role": "user", "content": "Hello, which model are you?"}
     ],
@@ -278,8 +278,8 @@ curl https://<CLOUDFRONT_DOMAIN>/chat/completions \
 
 | 调用名称 | 提供商 | 底层模型 | 认证方式 |
 |---|---|---|---|
-| `bedrock-claude-opus` | AWS Bedrock | Claude Opus 4.6 | IAM Role（自动） |
-| `bedrock-claude-haiku` | AWS Bedrock | Claude Haiku 4.5 | IAM Role（自动） |
+| `claude-opus-4-6` | AWS Bedrock | Claude Opus 4.6 | IAM Role（自动） |
+| `claude-haiku-4-5` | AWS Bedrock | Claude Haiku 4.5 | IAM Role（自动） |
 | `gpt-4o` | OpenAI | GPT-4o | API Key |
 | `gpt-4o-mini` | OpenAI | GPT-4o Mini | API Key |
 | `gpt-4.1` | OpenAI | GPT-4.1 | API Key |

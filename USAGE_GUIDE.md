@@ -40,9 +40,9 @@ aws secretsmanager get-secret-value \
 
 | 调用名称 | 模型 ID | 定位 |
 |----------|---------|------|
-| `bedrock-claude-opus` | `us.anthropic.claude-opus-4-6-v1` | 最强能力，复杂推理 |
-| `bedrock-claude-sonnet` | `us.anthropic.claude-sonnet-4-6` | **性价比最优，日常推荐** |
-| `bedrock-claude-haiku` | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | 最快最便宜，轻量任务 |
+| `claude-opus-4-6` | `us.anthropic.claude-opus-4-6-v1` | 最强能力，复杂推理 |
+| `claude-sonnet-4-6` | `us.anthropic.claude-sonnet-4-6` | **性价比最优，日常推荐** |
+| `claude-haiku-4-5` | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | 最快最便宜，轻量任务 |
 
 ### OpenAI 模型
 
@@ -66,7 +66,7 @@ aws secretsmanager get-secret-value \
 | `gemini-2.0-flash` | `gemini/gemini-2.0-flash` |
 | `gemini-2.5-pro` | `gemini/gemini-2.5-pro-preview-05-06` |
 
-> 💡 **Bedrock 模型**（bedrock-claude-*）通过 IAM Task Role 认证，无需额外 API Key，开箱即用。其他提供商需在 Secrets Manager 中配置 API Key。
+> 💡 **Bedrock 模型**（claude-*）通过 IAM Task Role 认证，无需额外 API Key，开箱即用。其他提供商需在 Secrets Manager 中配置 API Key。
 
 ---
 
@@ -86,7 +86,7 @@ curl https://dhbhkord7llum.cloudfront.net/chat/completions \
   -H "Authorization: Bearer <MASTER_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "bedrock-claude-sonnet",
+    "model": "claude-sonnet-4-6",
     "messages": [{"role": "user", "content": "你好，请介绍一下你自己"}],
     "max_tokens": 500
   }'
@@ -99,7 +99,7 @@ curl https://dhbhkord7llum.cloudfront.net/chat/completions \
   -H "Authorization: Bearer <MASTER_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "bedrock-claude-opus",
+    "model": "claude-opus-4-6",
     "messages": [{"role": "user", "content": "分析AWS Well-Architected Framework的六大支柱"}],
     "max_tokens": 2000
   }'
@@ -116,7 +116,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="bedrock-claude-sonnet",
+    model="claude-sonnet-4-6",
     messages=[{"role": "user", "content": "Hello!"}],
     max_tokens=200
 )
@@ -130,7 +130,7 @@ curl https://dhbhkord7llum.cloudfront.net/chat/completions \
   -H "Authorization: Bearer <MASTER_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "bedrock-claude-sonnet",
+    "model": "claude-sonnet-4-6",
     "messages": [{"role": "user", "content": "写一首关于AWS的诗"}],
     "max_tokens": 500,
     "stream": true
@@ -168,13 +168,13 @@ vim /tmp/litellm-config.yaml
 
 ```yaml
   # 修改前
-  - model_name: bedrock-claude-sonnet
+  - model_name: claude-sonnet-4-6
     litellm_params:
       model: bedrock/us.anthropic.claude-sonnet-4-6
       aws_region_name: us-east-1
 
   # 修改后（假设新版本 ID）
-  - model_name: bedrock-claude-sonnet
+  - model_name: claude-sonnet-4-6
     litellm_params:
       model: bedrock/us.anthropic.claude-sonnet-4-7-v1
       aws_region_name: us-east-1
@@ -183,7 +183,7 @@ vim /tmp/litellm-config.yaml
 **添加新模型**只需在 `model_list` 中新增条目：
 
 ```yaml
-  - model_name: bedrock-claude-new-model
+  - model_name: claude-new-model
     litellm_params:
       model: bedrock/<新模型的 inference profile ID>
       aws_region_name: us-east-1
@@ -217,7 +217,7 @@ curl -s https://dhbhkord7llum.cloudfront.net/v1/models \
 curl -s https://dhbhkord7llum.cloudfront.net/chat/completions \
   -H "Authorization: Bearer $MASTER_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"model":"bedrock-claude-sonnet","messages":[{"role":"user","content":"Hi"}],"max_tokens":10}'
+  -d '{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"Hi"}],"max_tokens":10}'
 ```
 
 ---
@@ -256,7 +256,7 @@ curl -s https://dhbhkord7llum.cloudfront.net/key/generate \
   -H "Content-Type: application/json" \
   -d '{
     "key_alias": "intern-limited",
-    "models": ["bedrock-claude-haiku", "bedrock-claude-sonnet"],
+    "models": ["claude-haiku-4-5", "claude-sonnet-4-6"],
     "max_budget": 10.0,
     "duration": "7d",
     "tpm_limit": 100000,
@@ -277,7 +277,7 @@ curl -s https://dhbhkord7llum.cloudfront.net/team/new \
   -d '{
     "team_alias": "platform-team",
     "max_budget": 500.0,
-    "models": ["bedrock-claude-opus", "bedrock-claude-sonnet", "bedrock-claude-haiku"]
+    "models": ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"]
   }' | python3 -m json.tool
 
 # 返回中的 team_id 用于下一步
@@ -313,7 +313,7 @@ curl -s https://dhbhkord7llum.cloudfront.net/key/update \
   -d '{
     "key": "sk-xxx",
     "max_budget": 200.0,
-    "models": ["bedrock-claude-opus", "bedrock-claude-sonnet"]
+    "models": ["claude-opus-4-6", "claude-sonnet-4-6"]
   }' | python3 -m json.tool
 
 # 删除 Key
@@ -331,7 +331,7 @@ curl https://dhbhkord7llum.cloudfront.net/chat/completions \
   -H "Authorization: Bearer sk-xxx" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "bedrock-claude-sonnet",
+    "model": "claude-sonnet-4-6",
     "messages": [{"role": "user", "content": "Hello!"}],
     "max_tokens": 200
   }'

@@ -49,7 +49,7 @@ curl http://<YOUR-ALB-DNS>/chat/completions \
   -H "Authorization: Bearer <MASTER_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "bedrock-claude-opus",
+    "model": "claude-opus-4-6",
     "messages": [{"role": "user", "content": "Hello"}],
     "max_tokens": 200
   }'
@@ -59,8 +59,8 @@ curl http://<YOUR-ALB-DNS>/chat/completions \
 
 | Model Name | Provider | Model ID |
 |---|---|---|
-| `bedrock-claude-opus` | AWS Bedrock | `us.anthropic.claude-opus-4-6-v1` |
-| `bedrock-claude-haiku` | AWS Bedrock | `us.anthropic.claude-haiku-4-5-20251001-v1:0` |
+| `claude-opus-4-6` | AWS Bedrock | `us.anthropic.claude-opus-4-6-v1` |
+| `claude-haiku-4-5` | AWS Bedrock | `us.anthropic.claude-haiku-4-5-20251001-v1:0` |
 | `gpt-4o` | OpenAI | `openai/gpt-4o` |
 | `gpt-4o-mini` | OpenAI | `openai/gpt-4o-mini` |
 | `gpt-4.1` | OpenAI | `openai/gpt-4.1` |
