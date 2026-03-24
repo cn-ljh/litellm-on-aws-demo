@@ -112,7 +112,7 @@ Bedrock 模型默认**未开通**，需要在控制台手动申请：
 ### 第 1 步：克隆代码
 
 ```bash
-git clone https://github.com/<YOUR_GITHUB_USER>/litellm-on-aws-demo.git
+git clone https://github.com/cn-ljh/litellm-on-aws-demo.git
 cd litellm-on-aws-demo
 ```
 

@@ -39,8 +39,8 @@ Internet → CloudFront (HTTPS) → ALB (HTTP:80, dual-AZ) → ECS Fargate (2 re
 ### 1. Clone and Deploy
 
 ```bash
-git clone https://github.com/<YOUR_GITHUB_USER>/litellm-on-aws.git
-cd litellm-on-aws
+git clone https://github.com/cn-ljh/litellm-on-aws-demo.git
+cd litellm-on-aws-demo
 chmod +x deploy.sh
 ./deploy.sh
 ```
