@@ -30,7 +30,6 @@ Internet → CloudFront (HTTPS) → ALB (HTTP:80, dual-AZ) → ECS Fargate (2 re
 | Scaling | Manual instance resize | Automatic based on load |
 | HA | Multi-AZ standby (idle) | 2 instances (writer + reader) with failover |
 | Cost (DB) | ~$200/month always-on | Pay per ACU-hour, ~$43/month at idle |
-| Audit | DynamoDB (extra cost) | PostgreSQL SpendLogs (included) |
 
 ---
 
