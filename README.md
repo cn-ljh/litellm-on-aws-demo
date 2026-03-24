@@ -1,5 +1,7 @@
 # LiteLLM on AWS — Unified LLM API Gateway
 
+[English](README.md) | [中文](README_CN.md)
+
 Deploy [LiteLLM Proxy](https://github.com/BerriAI/litellm) on AWS as a unified, OpenAI-compatible API gateway for multiple LLM providers (AWS Bedrock, OpenAI, Anthropic, Google Gemini, and more).
 
 > Forked from [zhuangyq008/litellm-on-aws](https://github.com/zhuangyq008/litellm-on-aws) — replaced RDS PostgreSQL with **Aurora Serverless v2** for automatic scaling and cost optimization.
@@ -134,9 +136,51 @@ Edit `config/litellm-config.yaml` to customize models before or after deployment
 
 ### Prerequisites
 
-- AWS account with Administrator (or equivalent) permissions
-- AWS CLI v2 installed and configured (`aws configure`)
-- For Bedrock: [request model access](https://console.aws.amazon.com/bedrock/home#/modelaccess) in your target region
+#### AWS Account & Permissions
+
+| Requirement | Details |
+|-------------|---------|
+| **AWS Account** | Active AWS account |
+| **IAM Permissions** | **AdministratorAccess** (or equivalent) for the deploying user/role |
+| | Services used: VPC, EC2, ECS, RDS, ElastiCache, S3, CloudFront, Secrets Manager, IAM, CloudWatch, Bedrock, ELB |
+| **Service Quotas** | Ensure sufficient quotas for VPC, EIP, NAT Gateway in target region |
+
+#### Tools
+
+| Tool | Min Version | Install |
+|------|------------|---------|
+| **AWS CLI** | v2.x | [Install Guide](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) |
+| **Python** | 3.8+ | For JSON parsing in scripts |
+| **bash** | 4.0+ | Deployment script |
+
+```bash
+# Verify AWS CLI is configured
+aws sts get-caller-identity
+aws configure get region
+```
+
+#### Bedrock Model Access (Important)
+
+Bedrock models are **not enabled by default**. You must request access before deployment:
+
+1. Go to [Bedrock Model Access](https://console.aws.amazon.com/bedrock/home#/modelaccess) in your target region
+2. Click **Manage model access** → enable:
+   - ✅ Anthropic Claude Opus 4.6
+   - ✅ Anthropic Claude Sonnet 4.6
+   - ✅ Anthropic Claude Haiku 4.5
+3. Wait for **Access granted** status (usually a few minutes)
+
+> ⚠️ **Skipping this step will cause 403 errors for all Bedrock model calls.**
+
+#### Third-party API Keys (Optional)
+
+Required only if using non-Bedrock providers:
+
+| Provider | Get Key |
+|----------|---------|
+| OpenAI | https://platform.openai.com/api-keys |
+| Anthropic | https://console.anthropic.com/settings/keys |
+| Google Gemini | https://aistudio.google.com/apikey |
 
 ### Parameters
 
@@ -474,6 +518,20 @@ Normal — global edge node sync takes 5–15 minutes.
 | Database | Multi-AZ + encrypted | Production-ready |
 | Redis | TLS encrypted | Production-ready |
 | NAT Gateway | Single AZ | Add second NAT for HA |
+
+<details>
+<summary><b>Bedrock returns 403 Forbidden</b></summary>
+
+Model access not enabled. Go to [Bedrock Model Access](https://console.aws.amazon.com/bedrock/home#/modelaccess) and request access.
+</details>
+
+<details>
+<summary><b>What IAM permissions are required?</b></summary>
+
+The deploying user/role needs permissions for: CloudFormation, VPC, EC2, ECS, RDS, ElastiCache, S3, CloudFront, Secrets Manager, IAM, CloudWatch, Bedrock, ELB.
+
+**Recommended**: Use `AdministratorAccess` for deployment, then tighten permissions for day-to-day operations.
+</details>
 
 ---
 
