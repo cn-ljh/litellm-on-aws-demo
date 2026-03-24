@@ -141,31 +141,6 @@ Resources:
         - Key: Name
           Value: !Sub "${ProjectName}-config"
 
-  # --- DynamoDB Table for Audit Logging ---
-  AuditLogTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub "${ProjectName}-audit-log"
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: id
-          AttributeType: S
-        - AttributeName: startTime
-          AttributeType: S
-      KeySchema:
-        - AttributeName: id
-          KeyType: HASH
-        - AttributeName: startTime
-          KeyType: RANGE
-      TimeToLiveSpecification:
-        AttributeName: ttl
-        Enabled: true
-      PointInTimeRecoverySpecification:
-        PointInTimeRecoveryEnabled: true
-      Tags:
-        - Key: Name
-          Value: !Sub "${ProjectName}-audit-log"
-
 Outputs:
   RDSEndpoint:
     Value: !GetAtt AuroraCluster.Endpoint.Address
@@ -199,11 +174,3 @@ Outputs:
     Value: !Ref ConfigBucket
     Export:
       Name: !Sub "${ProjectName}-ConfigBucketName"
-  AuditLogTableName:
-    Value: !Ref AuditLogTable
-    Export:
-      Name: !Sub "${ProjectName}-AuditLogTableName"
-  AuditLogTableArn:
-    Value: !GetAtt AuditLogTable.Arn
-    Export:
-      Name: !Sub "${ProjectName}-AuditLogTableArn"

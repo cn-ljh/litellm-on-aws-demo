@@ -384,10 +384,10 @@ aws ecs update-service --cluster litellm-gw-cluster --service litellm-gw-service
                     │ PG 16.6       │          │ Serverless    │  │ Claude/etc │  │
                     │ 0.5-4 ACU     │          └───────────────┘  └────────────┘  │
                     └───────────────┘                                              │
-                                                                    ┌──────────────▼┐
-                                                                    │  DynamoDB     │
-                                                                    │  审计日志      │
-                                                                    └───────────────┘
+                    │               │
+                    │  (SpendLogs   │
+                    │   审计日志)    │
+                    └───────────────┘
 ```
 
 ### 关键组件
@@ -398,23 +398,29 @@ aws ecs update-service --cluster litellm-gw-cluster --service litellm-gw-service
 | 数据库 | Aurora Serverless v2 | PostgreSQL 16.6, 0.5-4 ACU 自动伸缩, 双实例 |
 | 缓存 | ElastiCache Redis | Serverless, TLS 加密, 自动扩缩容 |
 | CDN | CloudFront | HTTPS 终结, HTTP/2+3, 全球边缘加速 |
-| 审计日志 | DynamoDB | 按需计费, 全量记录, TTL + PITR |
+| 审计日志 | Aurora SpendLogs | 内置于 PostgreSQL，零额外成本，支持 SQL 聚合查询 |
 | 密钥管理 | Secrets Manager | 租户/提供商命名空间, 自动生成 Master Key |
 
 ---
 
 ## 运维操作
 
-### 查看审计日志
+### 查看审计日志 (SpendLogs)
 
 ```bash
-# 总数
-aws dynamodb scan --table-name litellm-gw-audit-log --region us-east-1 --select COUNT
+MASTER_KEY=$(aws secretsmanager get-secret-value --secret-id litellm/default/master-key --region us-east-1 --query SecretString --output text | python3 -c "import sys,json; print(json.load(sys.stdin)['master_key'])")
 
-# 最近 5 条
-aws dynamodb scan --table-name litellm-gw-audit-log --region us-east-1 --max-items 5 \
-  --projection-expression "id, model, call_type, startTime, #u" \
-  --expression-attribute-names '{"#u":"usage"}'
+# 查看今日费用和调用汇总
+curl -s "https://dhbhkord7llum.cloudfront.net/spend/logs?start_date=$(date +%Y-%m-%d)&end_date=$(date -d '+1 day' +%Y-%m-%d)" \
+  -H "Authorization: Bearer $MASTER_KEY" | python3 -m json.tool
+
+# 查看指定用户的调用记录
+curl -s "https://dhbhkord7llum.cloudfront.net/spend/logs?api_key=<HASHED_KEY>" \
+  -H "Authorization: Bearer $MASTER_KEY" | python3 -m json.tool
+
+# 查看全局费用
+curl -s "https://dhbhkord7llum.cloudfront.net/global/spend/logs?start_date=$(date +%Y-%m-%d)&end_date=$(date -d '+1 day' +%Y-%m-%d)" \
+  -H "Authorization: Bearer $MASTER_KEY" | python3 -m json.tool
 ```
 
 ### 查看应用日志

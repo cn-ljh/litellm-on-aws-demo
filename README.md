@@ -91,23 +91,26 @@ You can customize ACU range via CloudFormation parameters in `cfn/03-data.yaml`:
 
 > **Tip**: For dev/test, `MinACU=0.5 / MaxACU=2` is sufficient. For production, consider `MinACU=1 / MaxACU=16`.
 
-## Audit Logging (DynamoDB)
+## Audit Logging (PostgreSQL SpendLogs)
 
-All API calls (success and failure) are logged to DynamoDB table `litellm-gw-audit-log`.
+All API calls are automatically logged to the Aurora Serverless v2 PostgreSQL database (`LiteLLM_SpendLogs` table) at zero additional cost.
 
-Each record includes: request id, model, messages, response, token usage, timestamps, caller metadata.
+Each record includes: model, spend, tokens, duration, user, team, api_key, cache_hit, request_tags, session_id, and more.
 
 ```bash
-# Check audit log count
-aws dynamodb scan --table-name litellm-gw-audit-log --region us-east-1 --select COUNT
+MASTER_KEY=$(aws secretsmanager get-secret-value --secret-id litellm/default/master-key \
+  --region us-east-1 --query SecretString --output text | python3 -c "import sys,json; print(json.load(sys.stdin)['master_key'])")
 
-# View recent logs
-aws dynamodb scan --table-name litellm-gw-audit-log --region us-east-1 --max-items 5 \
-  --projection-expression "id, model, call_type, startTime, #u" \
-  --expression-attribute-names '{"#u":"usage"}'
+# View spend summary
+curl -s "https://<CLOUDFRONT_DOMAIN>/spend/logs?start_date=$(date +%Y-%m-%d)&end_date=$(date -d '+1 day' +%Y-%m-%d)" \
+  -H "Authorization: Bearer $MASTER_KEY" | python3 -m json.tool
+
+# View spend by user key
+curl -s "https://<CLOUDFRONT_DOMAIN>/spend/logs?api_key=<HASHED_KEY>" \
+  -H "Authorization: Bearer $MASTER_KEY" | python3 -m json.tool
 ```
 
-Table features: PAY_PER_REQUEST billing, TTL support, Point-in-Time Recovery enabled.
+Advantages over DynamoDB: SQL aggregation, zero extra cost (included in Aurora ACU), richer fields (spend, duration, cache_hit).
 
 ## Update API Keys
 
@@ -132,7 +135,7 @@ aws ecs update-service --cluster litellm-gw-cluster --service litellm-gw-service
 |---|---|
 | `litellm-gw-vpc` | VPC, 2 public + 2 private subnets, IGW, NAT GW |
 | `litellm-gw-secrets` | Secrets Manager (tenant/provider namespace) |
-| `litellm-gw-data` | **Aurora Serverless v2 PostgreSQL**, ElastiCache Redis Serverless, S3 config bucket, DynamoDB audit log |
+| `litellm-gw-data` | **Aurora Serverless v2 PostgreSQL** (incl. SpendLogs audit), ElastiCache Redis Serverless, S3 config bucket |
 | `litellm-gw-ecs` | ECS Fargate cluster, ALB, Task Definition, CloudWatch logs |
 | `litellm-gw-cloudfront` | CloudFront distribution (HTTPS, HTTP/2+3) |
 

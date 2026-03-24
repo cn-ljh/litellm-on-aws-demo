@@ -28,7 +28,7 @@
                        │  │     │      │      │                         │    │
                        │  │     ▼      ▼      ▼                         │    │
                        │  │  ┌─────┐┌─────┐┌──────────┐┌──────────┐   │    │
-                       │  │  │Auro││Redis││ Bedrock  ││ DynamoDB │   │    │
+                       │  │  │Auro││Redis││ Bedrock  ││SpendLogs│   │    │
                        │  │  │ SV2 ││ TLS ││ (IAM)   ││ (审计)   │   │    │
                        │  │  └─────┘└─────┘└──────────┘└──────────┘   │    │
                        │  └────────────────────────────────────────────┘    │
@@ -48,7 +48,7 @@
 | 密钥管理 | Secrets Manager | 按租户/提供商命名空间管理 |
 | 配置存储 | S3 | 版本化, 加密 |
 | 日志 | CloudWatch Logs | 保留 30 天 |
-| 审计日志 | DynamoDB | 按需计费, 记录所有 API 调用详情 |
+| 审计日志 | Aurora SpendLogs | 内置于 PostgreSQL，零额外成本，支持 SQL 查询 |
 
 ---
 
@@ -98,7 +98,7 @@ litellm-gw/
 ├── cfn/                           # CloudFormation 模板
 │   ├── 01-vpc.yaml                #   网络层: VPC, 子网, NAT, 路由
 │   ├── 02-secrets.yaml            #   密钥层: Secrets Manager
-│   ├── 03-data.yaml               #   数据层: RDS, Redis, S3, DynamoDB
+│   ├── 03-data.yaml               #   数据层: Aurora Serverless v2, Redis, S3
 │   ├── 04-ecs.yaml                #   应用层: ECS, ALB, IAM, CloudWatch
 │   └── 05-cloudfront.yaml         #   CDN层: CloudFront HTTPS 加速
 ├── config/
@@ -311,25 +311,23 @@ aws ecs update-service \
   --region us-east-1
 ```
 
-### 7.2 审计日志 (DynamoDB)
+### 7.2 审计日志 (PostgreSQL SpendLogs)
 
-所有 API 调用（成功和失败）都会自动记录到 DynamoDB 表 `litellm-gw-audit-log`。
+所有 API 调用都会自动记录到 Aurora PostgreSQL 的 `LiteLLM_SpendLogs` 表，零额外成本。
 
 **查看审计日志总数:**
 
 ```bash
-aws dynamodb scan --table-name litellm-gw-audit-log \
-  --region us-east-1 --select COUNT
+# 通过 LiteLLM API 查询 SpendLogs
+MASTER_KEY=$(aws secretsmanager get-secret-value --secret-id litellm/default/master-key --region us-east-1 --query SecretString --output text | python3 -c "import sys,json; print(json.load(sys.stdin)['master_key'])")
+
+curl -s "https://<CLOUDFRONT_DOMAIN>/spend/logs?start_date=$(date +%Y-%m-%d)&end_date=$(date -d '+1 day' +%Y-%m-%d)" \
+  -H "Authorization: Bearer $MASTER_KEY" | python3 -m json.tool
 ```
 
 **查看最近的审计日志:**
 
-```bash
-aws dynamodb scan --table-name litellm-gw-audit-log \
-  --region us-east-1 --max-items 5 \
-  --projection-expression "id, model, call_type, startTime, #u" \
-  --expression-attribute-names '{"#u":"usage"}'
-```
+
 
 **记录的字段:**
 
