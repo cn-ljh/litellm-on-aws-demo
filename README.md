@@ -1,166 +1,482 @@
-# LiteLLM Gateway - AWS Deployment (Aurora Serverless v2)
+# LiteLLM on AWS — Unified LLM API Gateway
+
+Deploy [LiteLLM Proxy](https://github.com/BerriAI/litellm) on AWS as a unified, OpenAI-compatible API gateway for multiple LLM providers (AWS Bedrock, OpenAI, Anthropic, Google Gemini, and more).
 
 > Forked from [zhuangyq008/litellm-on-aws](https://github.com/zhuangyq008/litellm-on-aws) — replaced RDS PostgreSQL with **Aurora Serverless v2** for automatic scaling and cost optimization.
+
+## Features
+
+- **OpenAI-compatible API** — One endpoint for all LLM providers
+- **Aurora Serverless v2** — Auto-scaling database (0.5–16 ACU), pay only for what you use
+- **Zero-config Bedrock** — AWS Bedrock models via IAM Role, no API keys needed
+- **Built-in audit logging** — All calls logged to PostgreSQL SpendLogs at zero extra cost
+- **Virtual Keys** — Per-user/team API keys with budget & rate limits
+- **One-click deploy** — 5 CloudFormation stacks, fully automated
 
 ## Architecture
 
 ```
-Internet -> CloudFront (HTTPS) -> ALB (HTTP:80, dual-AZ) -> ECS Fargate (private subnets, 2 replicas)
-                                          |-> Aurora Serverless v2 PostgreSQL 16.6 (0.5-4 ACU, Multi-AZ)
-                                          |-> ElastiCache Redis Serverless (TLS)
-                                          |-> AWS Bedrock (IAM Role)
+Internet → CloudFront (HTTPS) → ALB (HTTP:80, dual-AZ) → ECS Fargate (2 replicas, private subnets)
+                                        ├── Aurora Serverless v2 (PostgreSQL 16, 0.5–4 ACU, Multi-AZ)
+                                        ├── ElastiCache Redis Serverless (TLS)
+                                        └── AWS Bedrock / OpenAI / Anthropic / Gemini
 ```
 
-## Key Changes from Original
+| Component | Original Repo | This Fork |
+|-----------|--------------|-----------|
+| Database | RDS PostgreSQL (db.m7g.large, fixed) | Aurora Serverless v2 (0.5–4 ACU, auto-scaling) |
+| Scaling | Manual instance resize | Automatic based on load |
+| HA | Multi-AZ standby (idle) | 2 instances (writer + reader) with failover |
+| Cost (DB) | ~$200/month always-on | Pay per ACU-hour, ~$43/month at idle |
+| Audit | DynamoDB (extra cost) | PostgreSQL SpendLogs (included) |
 
-| Component | Original | This Fork |
-|---|---|---|
-| Database | RDS PostgreSQL 16.13 (db.m7g.large, fixed) | Aurora Serverless v2 (0.5-4 ACU, auto-scaling) |
-| Scaling | Manual instance resize | Automatic 0.5 → 4 ACU based on load |
-| HA | Multi-AZ standby (no read traffic) | 2 instances (writer + reader) with failover |
-| Cost | ~$200/month (m7g.large always-on) | Pay per ACU-hour, scales to 0.5 ACU at idle |
-| Storage | gp3, manual allocation 50-200GB | Aurora auto-expanding, no pre-allocation |
+---
 
-## Access
+## Quick Start
 
-| Resource | Endpoint |
-|---|---|
-| LiteLLM Gateway (HTTPS) | `https://<YOUR-CLOUDFRONT-DOMAIN>` |
-| LiteLLM Gateway (ALB) | `http://<YOUR-ALB-DNS>` |
-| Health Check | `GET /health/liveliness` |
-| Model Info | `GET /model/info` (requires auth) |
-| Chat Completions | `POST /chat/completions` (OpenAI-compatible) |
-
-## Authentication
-
-Master key stored in Secrets Manager: `litellm/default/master-key`
-
-Retrieve it:
-```bash
-aws secretsmanager get-secret-value \
-  --secret-id litellm/default/master-key \
-  --region us-east-1 \
-  --query SecretString --output text | python3 -c "import sys,json; print(json.load(sys.stdin)['master_key'])"
-```
-
-Use in API calls:
-```bash
-curl http://<YOUR-ALB-DNS>/chat/completions \
-  -H "Authorization: Bearer <MASTER_KEY>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "claude-opus-4-6",
-    "messages": [{"role": "user", "content": "Hello"}],
-    "max_tokens": 200
-  }'
-```
-
-## Available Models
-
-| Model Name | Provider | Model ID |
-|---|---|---|
-| `claude-opus-4-6` | AWS Bedrock | `us.anthropic.claude-opus-4-6-v1` |
-| `claude-haiku-4-5` | AWS Bedrock | `us.anthropic.claude-haiku-4-5-20251001-v1:0` |
-| `gpt-4o` | OpenAI | `openai/gpt-4o` |
-| `gpt-4o-mini` | OpenAI | `openai/gpt-4o-mini` |
-| `gpt-4.1` | OpenAI | `openai/gpt-4.1` |
-| `claude-sonnet-4-20250514` | Anthropic API | `anthropic/claude-sonnet-4-20250514` |
-| `claude-haiku-4-5-20251001` | Anthropic API | `anthropic/claude-haiku-4-5-20251001` |
-| `gemini-2.0-flash` | Google | `gemini/gemini-2.0-flash` |
-| `gemini-2.5-pro` | Google | `gemini/gemini-2.5-pro-preview-05-06` |
-
-Bedrock models use IAM Task Role (no API key needed). Other providers require API keys in Secrets Manager.
-
-## Deployment
+### 1. Clone and Deploy
 
 ```bash
-git clone https://github.com/cn-ljh/litellm-on-aws-1.git
-cd litellm-on-aws-1
+git clone https://github.com/<YOUR_GITHUB_USER>/litellm-on-aws.git
+cd litellm-on-aws
 chmod +x deploy.sh
 ./deploy.sh
 ```
 
-### Aurora Serverless v2 Scaling Parameters
+Deployment takes ~20–25 minutes. The script creates 5 CloudFormation stacks in order.
 
-You can customize ACU range via CloudFormation parameters in `cfn/03-data.yaml`:
-
-| Parameter | Default | Description |
-|---|---|---|
-| `MinACU` | 0.5 | Minimum Aurora Capacity Units (cost savings at idle) |
-| `MaxACU` | 4 | Maximum Aurora Capacity Units (peak performance) |
-
-> **Tip**: For dev/test, `MinACU=0.5 / MaxACU=2` is sufficient. For production, consider `MinACU=1 / MaxACU=16`.
-
-## Audit Logging (PostgreSQL SpendLogs)
-
-All API calls are automatically logged to the Aurora Serverless v2 PostgreSQL database (`LiteLLM_SpendLogs` table) at zero additional cost.
-
-Each record includes: model, spend, tokens, duration, user, team, api_key, cache_hit, request_tags, session_id, and more.
+### 2. Get Your Master Key
 
 ```bash
-MASTER_KEY=$(aws secretsmanager get-secret-value --secret-id litellm/default/master-key \
-  --region us-east-1 --query SecretString --output text | python3 -c "import sys,json; print(json.load(sys.stdin)['master_key'])")
+MASTER_KEY=$(aws secretsmanager get-secret-value \
+  --secret-id litellm/<TENANT_NAME>/master-key \
+  --region <YOUR_REGION> \
+  --query SecretString --output text \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['master_key'])")
+```
 
-# View spend summary
-curl -s "https://<CLOUDFRONT_DOMAIN>/spend/logs?start_date=$(date +%Y-%m-%d)&end_date=$(date -d '+1 day' +%Y-%m-%d)" \
+> Replace `<TENANT_NAME>` with your tenant name (default: `default`).
+
+### 3. Test It
+
+```bash
+# Health check
+curl https://<YOUR_CLOUDFRONT_DOMAIN>/health/liveliness
+# → "I'm alive!"
+
+# Chat completion (Bedrock — no API key config needed)
+curl https://<YOUR_CLOUDFRONT_DOMAIN>/chat/completions \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-sonnet-4-6",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "max_tokens": 200
+  }'
+```
+
+### 4. Python SDK (OpenAI-compatible)
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="<MASTER_KEY>",
+    base_url="https://<YOUR_CLOUDFRONT_DOMAIN>"
+)
+
+response = client.chat.completions.create(
+    model="claude-sonnet-4-6",
+    messages=[{"role": "user", "content": "Hello!"}],
+    max_tokens=200
+)
+print(response.choices[0].message.content)
+```
+
+### 5. Streaming
+
+```bash
+curl https://<YOUR_CLOUDFRONT_DOMAIN>/chat/completions \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-sonnet-4-6",
+    "messages": [{"role": "user", "content": "Write a haiku about cloud computing"}],
+    "max_tokens": 500,
+    "stream": true
+  }'
+```
+
+---
+
+## Default Models
+
+| Model Name | Provider | Model ID | Notes |
+|-----------|----------|----------|-------|
+| `claude-opus-4-6` | AWS Bedrock | `us.anthropic.claude-opus-4-6-v1` | Most capable |
+| `claude-sonnet-4-6` | AWS Bedrock | `us.anthropic.claude-sonnet-4-6` | **Best value** |
+| `claude-haiku-4-5` | AWS Bedrock | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | Fastest & cheapest |
+| `gpt-4o` | OpenAI | `openai/gpt-4o` | Requires API key |
+| `gpt-4o-mini` | OpenAI | `openai/gpt-4o-mini` | Requires API key |
+| `gpt-4.1` | OpenAI | `openai/gpt-4.1` | Requires API key |
+| `claude-sonnet-4-20250514` | Anthropic API | `anthropic/claude-sonnet-4-20250514` | Requires API key |
+| `claude-haiku-4-5-20251001` | Anthropic API | `anthropic/claude-haiku-4-5-20251001` | Requires API key |
+| `gemini-2.0-flash` | Google | `gemini/gemini-2.0-flash` | Requires API key |
+| `gemini-2.5-pro` | Google | `gemini/gemini-2.5-pro-preview-05-06` | Requires API key |
+
+Bedrock models use the ECS Task Role for IAM authentication — no API keys needed. Other providers require keys in Secrets Manager.
+
+Edit `config/litellm-config.yaml` to customize models before or after deployment.
+
+---
+
+## Deployment Guide
+
+### Prerequisites
+
+- AWS account with Administrator (or equivalent) permissions
+- AWS CLI v2 installed and configured (`aws configure`)
+- For Bedrock: [request model access](https://console.aws.amazon.com/bedrock/home#/modelaccess) in your target region
+
+### Parameters
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PROJECT_NAME` | `litellm-gw` | Resource naming prefix |
+| `TENANT_NAME` | `default` | Secrets Manager namespace |
+| `AWS_REGION` | `us-east-1` | Target region |
+| `MinACU` | `0.5` | Aurora minimum capacity (ACU) |
+| `MaxACU` | `4` | Aurora maximum capacity (ACU) |
+
+```bash
+# Deploy with custom parameters
+PROJECT_NAME=my-llm-gw TENANT_NAME=myteam AWS_REGION=us-west-2 ./deploy.sh
+```
+
+> **Tip**: For dev/test use `MinACU=0.5 / MaxACU=2`. For production consider `MinACU=1 / MaxACU=16`.
+
+### Deployment Stages
+
+| Stage | Time | Resources |
+|-------|------|-----------|
+| 1. VPC | ~2 min | VPC, subnets, IGW, NAT GW |
+| 2. Secrets | ~1 min | Secrets Manager |
+| 3. Data | ~10-15 min | Aurora Serverless v2, Redis, S3 |
+| 4. ECS | ~3-5 min | ECS Fargate, ALB, IAM, CloudWatch |
+| 5. CloudFront | ~3-5 min | CloudFront (HTTPS) |
+
+### Configure Provider API Keys (Optional)
+
+Skip this if using only Bedrock models.
+
+```bash
+# OpenAI
+aws secretsmanager update-secret \
+  --secret-id litellm/<TENANT_NAME>/openai \
+  --secret-string '{"api_key":"sk-proj-xxxxxxxxx"}' \
+  --region <YOUR_REGION>
+
+# Anthropic
+aws secretsmanager update-secret \
+  --secret-id litellm/<TENANT_NAME>/anthropic \
+  --secret-string '{"api_key":"sk-ant-xxxxxxxxx"}' \
+  --region <YOUR_REGION>
+
+# Google Gemini
+aws secretsmanager update-secret \
+  --secret-id litellm/<TENANT_NAME>/gemini \
+  --secret-string '{"api_key":"AIzaSyxxxxxxxxx"}' \
+  --region <YOUR_REGION>
+
+# Restart to pick up new secrets
+aws ecs update-service \
+  --cluster <PROJECT_NAME>-cluster \
+  --service <PROJECT_NAME>-service \
+  --force-new-deployment \
+  --region <YOUR_REGION>
+```
+
+---
+
+## User & Key Management
+
+### Create a Virtual Key
+
+```bash
+curl -s https://<YOUR_CLOUDFRONT_DOMAIN>/key/generate \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "key_alias": "team-backend",
+    "duration": "30d",
+    "max_budget": 100.0
+  }' | python3 -m json.tool
+```
+
+The returned `key` (format `sk-xxx`) is the user's API key.
+
+### Key with Model Restrictions
+
+```bash
+curl -s https://<YOUR_CLOUDFRONT_DOMAIN>/key/generate \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "key_alias": "limited-key",
+    "models": ["claude-haiku-4-5", "claude-sonnet-4-6"],
+    "max_budget": 10.0,
+    "duration": "7d",
+    "tpm_limit": 100000,
+    "rpm_limit": 60
+  }' | python3 -m json.tool
+```
+
+### Team Management
+
+```bash
+# Create team
+curl -s https://<YOUR_CLOUDFRONT_DOMAIN>/team/new \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "team_alias": "platform-team",
+    "max_budget": 500.0,
+    "models": ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"]
+  }' | python3 -m json.tool
+
+# Create key for team member (use team_id from above response)
+curl -s https://<YOUR_CLOUDFRONT_DOMAIN>/key/generate \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "key_alias": "member-key",
+    "team_id": "<TEAM_ID>",
+    "max_budget": 50.0
+  }' | python3 -m json.tool
+```
+
+### Key Management API
+
+```bash
+# List keys
+curl -s https://<YOUR_CLOUDFRONT_DOMAIN>/key/list -H "Authorization: Bearer $MASTER_KEY"
+
+# Key info
+curl -s https://<YOUR_CLOUDFRONT_DOMAIN>/key/info -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" -d '{"key": "sk-xxx"}'
+
+# Update key
+curl -s https://<YOUR_CLOUDFRONT_DOMAIN>/key/update -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" -d '{"key": "sk-xxx", "max_budget": 200.0}'
+
+# Delete key
+curl -s https://<YOUR_CLOUDFRONT_DOMAIN>/key/delete -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" -d '{"keys": ["sk-xxx"]}'
+```
+
+> **⚠️ Note**: When creating users via the LiteLLM UI, the default `models: ["no-default-models"]` blocks all model access. You must explicitly set the models list for each new user.
+
+---
+
+## Operations
+
+### Update Model Configuration
+
+```bash
+# 1. Edit config
+vim config/litellm-config.yaml
+
+# 2. Upload to S3
+aws s3 cp config/litellm-config.yaml \
+  s3://<PROJECT_NAME>-config-<ACCOUNT_ID>/litellm-config.yaml \
+  --region <YOUR_REGION>
+
+# 3. Rolling restart (zero downtime)
+aws ecs update-service \
+  --cluster <PROJECT_NAME>-cluster \
+  --service <PROJECT_NAME>-service \
+  --force-new-deployment \
+  --region <YOUR_REGION>
+```
+
+### Audit Logs (SpendLogs)
+
+All API calls are automatically logged to PostgreSQL `LiteLLM_SpendLogs` at zero extra cost.
+
+```bash
+# Spend summary
+curl -s "https://<YOUR_CLOUDFRONT_DOMAIN>/spend/logs?start_date=$(date +%Y-%m-%d)&end_date=$(date -d '+1 day' +%Y-%m-%d)" \
   -H "Authorization: Bearer $MASTER_KEY" | python3 -m json.tool
 
-# View spend by user key
-curl -s "https://<CLOUDFRONT_DOMAIN>/spend/logs?api_key=<HASHED_KEY>" \
+# Global spend
+curl -s "https://<YOUR_CLOUDFRONT_DOMAIN>/global/spend/logs?start_date=$(date +%Y-%m-%d)&end_date=$(date -d '+1 day' +%Y-%m-%d)" \
   -H "Authorization: Bearer $MASTER_KEY" | python3 -m json.tool
 ```
 
-Advantages over DynamoDB: SQL aggregation, zero extra cost (included in Aurora ACU), richer fields (spend, duration, cache_hit).
-
-## Update API Keys
+### Application Logs
 
 ```bash
-aws secretsmanager update-secret --secret-id litellm/default/openai \
-  --secret-string '{"api_key":"sk-xxx"}' --region us-east-1
-
-aws secretsmanager update-secret --secret-id litellm/default/anthropic \
-  --secret-string '{"api_key":"sk-ant-xxx"}' --region us-east-1
-
-aws secretsmanager update-secret --secret-id litellm/default/gemini \
-  --secret-string '{"api_key":"AIxxx"}' --region us-east-1
-
-# Restart ECS to pick up new secrets
-aws ecs update-service --cluster litellm-gw-cluster --service litellm-gw-service \
-  --force-new-deployment --region us-east-1
+aws logs tail /ecs/<PROJECT_NAME> --follow --region <YOUR_REGION>
 ```
+
+### Scaling
+
+```bash
+# ECS replicas
+aws ecs update-service --cluster <PROJECT_NAME>-cluster --service <PROJECT_NAME>-service \
+  --desired-count 4 --region <YOUR_REGION>
+
+# Aurora ACU range
+aws rds modify-db-cluster --db-cluster-identifier <PROJECT_NAME>-aurora-cluster \
+  --serverless-v2-scaling-configuration MinCapacity=1,MaxCapacity=16 \
+  --apply-immediately --region <YOUR_REGION>
+```
+
+### Update Bedrock Models
+
+```bash
+# List available inference profiles
+aws bedrock list-inference-profiles --region <YOUR_REGION> --type SYSTEM_DEFINED \
+  --query "inferenceProfileSummaries[?contains(inferenceProfileName,'Claude')].{Name:inferenceProfileName,ID:inferenceProfileId}" \
+  --output table
+```
+
+> Bedrock model IDs must use cross-region inference profile format (prefix `us.`), not raw model ARNs.
+
+---
+
+## Cleanup
+
+```bash
+# 1. Disable Aurora deletion protection
+aws rds modify-db-cluster --db-cluster-identifier <PROJECT_NAME>-aurora-cluster \
+  --no-deletion-protection --apply-immediately --region <YOUR_REGION>
+
+# 2. Empty S3 bucket
+aws s3 rm s3://<PROJECT_NAME>-config-<ACCOUNT_ID> --recursive --region <YOUR_REGION>
+
+# 3. Delete stacks in reverse order
+for stack in <PROJECT_NAME>-cloudfront <PROJECT_NAME>-ecs <PROJECT_NAME>-data <PROJECT_NAME>-secrets <PROJECT_NAME>-vpc; do
+  aws cloudformation delete-stack --stack-name $stack --region <YOUR_REGION>
+  aws cloudformation wait stack-delete-complete --stack-name $stack --region <YOUR_REGION>
+  echo "Deleted: $stack"
+done
+```
+
+---
+
+## Cost Estimate (Monthly)
+
+| Component | Estimate (USD) | Notes |
+|-----------|---------------|-------|
+| Aurora Serverless v2 | $30–$150 | Idle ~$43 (0.5 ACU); moderate ~$172 (2 ACU) |
+| ECS Fargate (2 replicas) | ~$75 | 1 vCPU / 4GB × 2 |
+| ElastiCache Redis | ~$20 | Serverless |
+| NAT Gateway | ~$35 | $0.045/hr + data |
+| CloudFront + misc | ~$10 | Per request |
+| **Total (infra)** | **$170–$290** | Excludes LLM API costs |
+
+> Compared to fixed RDS (~$200/month DB alone), Aurora Serverless v2 saves ~**70%** at low utilization.
+
+---
 
 ## CloudFormation Stacks
 
 | Stack | Resources |
-|---|---|
-| `litellm-gw-vpc` | VPC, 2 public + 2 private subnets, IGW, NAT GW |
-| `litellm-gw-secrets` | Secrets Manager (tenant/provider namespace) |
-| `litellm-gw-data` | **Aurora Serverless v2 PostgreSQL** (incl. SpendLogs audit), ElastiCache Redis Serverless, S3 config bucket |
-| `litellm-gw-ecs` | ECS Fargate cluster, ALB, Task Definition, CloudWatch logs |
-| `litellm-gw-cloudfront` | CloudFront distribution (HTTPS, HTTP/2+3) |
+|-------|-----------|
+| `*-vpc` | VPC, 2 public + 2 private subnets, IGW, NAT GW |
+| `*-secrets` | Secrets Manager (master key, provider API keys) |
+| `*-data` | Aurora Serverless v2, ElastiCache Redis, S3 config |
+| `*-ecs` | ECS Fargate, ALB, Task Definition, IAM, CloudWatch |
+| `*-cloudfront` | CloudFront distribution (HTTPS, HTTP/2+3) |
+
+## Project Structure
+
+```
+litellm-on-aws/
+├── cfn/
+│   ├── 01-vpc.yaml              # Network
+│   ├── 02-secrets.yaml          # Secrets Manager
+│   ├── 03-data.yaml             # Aurora, Redis, S3
+│   ├── 04-ecs.yaml              # ECS, ALB, IAM
+│   └── 05-cloudfront.yaml       # CloudFront
+├── config/
+│   └── litellm-config.yaml      # Model routing config
+├── deploy.sh                    # Deployment script
+└── README.md
+```
+
+---
 
 ## Troubleshooting
 
-### 1. Aurora PostgreSQL engine version not available
-- **Symptom**: Stack creation fails with engine version error
-- **Fix**: Check available versions: `aws rds describe-db-engine-versions --engine aurora-postgresql --query "DBEngineVersions[?starts_with(EngineVersion,'16')].EngineVersion"`
+<details>
+<summary><b>Aurora engine version not available</b></summary>
 
-### 2. ECS worker processes crash (OOM)
-- **Symptom**: Logs show `Child process [xxx] died` repeatedly
-- **Fix**: Increase task memory from 2048MB to 4096MB, reduce `--num_workers` to 2
+```bash
+aws rds describe-db-engine-versions --engine aurora-postgresql \
+  --query "DBEngineVersions[?starts_with(EngineVersion,'16')].EngineVersion" \
+  --output text --region <YOUR_REGION>
+```
+</details>
 
-### 3. Bedrock models require inference profiles
-- **Symptom**: `BedrockException - on-demand throughput isn't supported`
-- **Fix**: Use cross-region inference profile IDs (prefix `us.`)
+<details>
+<summary><b>ECS tasks crash (OOM)</b></summary>
 
-### 4. ALB Listener lost after stack delete/recreate
-- **Symptom**: ALB exists but no listener, `Connection refused`
-- **Fix**: deploy.sh includes self-heal logic; or manually create listener
+Increase `TaskMemory` to `4096` in `cfn/04-ecs.yaml`. Keep `--num_workers` ≤ 2.
+</details>
 
-### 5. ElastiCache Serverless delete fails during stack rollback
-- **Symptom**: Stack delete fails with "not in an available state"
-- **Fix**: Wait for cache to reach `available` state, then retry
+<details>
+<summary><b>Bedrock "on-demand throughput isn't supported"</b></summary>
 
-### 6. Aurora scaling takes time under sudden load
-- **Symptom**: Slow queries during rapid scale-up
-- **Fix**: Increase `MinACU` to avoid cold-start latency; Aurora scales incrementally
+Use cross-region inference profile IDs:
+```yaml
+# Wrong ❌  model: bedrock/anthropic.claude-opus-4-6-v1:0
+# Correct ✅ model: bedrock/us.anthropic.claude-opus-4-6-v1
+```
+</details>
+
+<details>
+<summary><b>ALB "Connection refused"</b></summary>
+
+Check if ALB listener exists. Recreate if missing:
+```bash
+ALB_ARN=$(aws elbv2 describe-load-balancers --names <PROJECT_NAME>-alb --region <YOUR_REGION> --query "LoadBalancers[0].LoadBalancerArn" --output text)
+TG_ARN=$(aws elbv2 describe-target-groups --names <PROJECT_NAME>-tg --region <YOUR_REGION> --query "TargetGroups[0].TargetGroupArn" --output text)
+aws elbv2 create-listener --load-balancer-arn "$ALB_ARN" --protocol HTTP --port 80 --default-actions Type=forward,TargetGroupArn="$TG_ARN" --region <YOUR_REGION>
+```
+</details>
+
+<details>
+<summary><b>ElastiCache delete fails</b></summary>
+
+Wait for `available` state, then retry:
+```bash
+aws elasticache describe-serverless-caches --serverless-cache-name <PROJECT_NAME>-redis --region <YOUR_REGION> --query "ServerlessCaches[0].Status"
+```
+</details>
+
+<details>
+<summary><b>CloudFront delete is slow</b></summary>
+
+Normal — global edge node sync takes 5–15 minutes.
+</details>
+
+---
+
+## Security Recommendations
+
+| Area | Current | Recommendation |
+|------|---------|----------------|
+| HTTPS | CloudFront TLS termination | Add custom domain + ACM certificate |
+| ALB access | Open | Restrict to CloudFront via managed prefix list or WAF |
+| Master Key | Auto-generated | Rotate periodically, limit distribution |
+| Database | Multi-AZ + encrypted | Production-ready |
+| Redis | TLS encrypted | Production-ready |
+| NAT Gateway | Single AZ | Add second NAT for HA |
+
+---
+
+## License
+
+See [LiteLLM License](https://github.com/BerriAI/litellm/blob/main/LICENSE) for the upstream project.
