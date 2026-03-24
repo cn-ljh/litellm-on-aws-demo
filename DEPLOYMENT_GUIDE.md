@@ -28,8 +28,8 @@
                        │  │     │      │      │                         │    │
                        │  │     ▼      ▼      ▼                         │    │
                        │  │  ┌─────┐┌─────┐┌──────────┐┌──────────┐   │    │
-                       │  │  │ RDS ││Redis││ Bedrock  ││ DynamoDB │   │    │
-                       │  │  │ PG  ││ TLS ││ (IAM)   ││ (审计)   │   │    │
+                       │  │  │Auro││Redis││ Bedrock  ││ DynamoDB │   │    │
+                       │  │  │ SV2 ││ TLS ││ (IAM)   ││ (审计)   │   │    │
                        │  │  └─────┘└─────┘└──────────┘└──────────┘   │    │
                        │  └────────────────────────────────────────────┘    │
                        └─────────────────────────────────────────────────────┘
@@ -43,7 +43,7 @@
 | CDN/HTTPS | CloudFront | HTTPS 终结, HTTP/2+3, 全球边缘加速 |
 | 负载均衡 | Application Load Balancer | Internal (经 CloudFront 访问) |
 | 计算 | ECS Fargate | 1 vCPU / 4GB 内存 / 2 副本 |
-| 数据库 | RDS PostgreSQL 16 | db.m7g.large, Multi-AZ, 加密存储 |
+| 数据库 | Aurora Serverless v2 PostgreSQL 16 | Serverless v2 (0.5-4 ACU), 双实例, 加密存储 |
 | 缓存 | ElastiCache Redis Serverless | 自动扩缩容, TLS 加密 |
 | 密钥管理 | Secrets Manager | 按租户/提供商命名空间管理 |
 | 配置存储 | S3 | 版本化, 加密 |

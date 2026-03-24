@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: "LiteLLM Gateway - RDS PostgreSQL + ElastiCache Redis Serverless + S3 Config"
+Description: "LiteLLM Gateway - Aurora Serverless v2 PostgreSQL + ElastiCache Redis Serverless + S3 Config"
 
 Parameters:
   ProjectName:
@@ -8,12 +8,17 @@ Parameters:
   TenantName:
     Type: String
     Default: default
-  DBInstanceClass:
-    Type: String
-    Default: db.m7g.large
   DBName:
     Type: String
     Default: litellm
+  MinACU:
+    Type: Number
+    Default: 0.5
+    Description: "Aurora Serverless v2 minimum ACU (0.5 - 256)"
+  MaxACU:
+    Type: Number
+    Default: 4
+    Description: "Aurora Serverless v2 maximum ACU (0.5 - 256)"
 
 Resources:
   # --- Security Groups ---
@@ -37,11 +42,11 @@ Resources:
         - Key: Name
           Value: !Sub "${ProjectName}-redis-sg"
 
-  # --- RDS PostgreSQL ---
+  # --- Aurora Serverless v2 PostgreSQL ---
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
-      DBSubnetGroupDescription: "Private subnets for RDS"
+      DBSubnetGroupDescription: "Private subnets for Aurora"
       SubnetIds:
         - !ImportValue
           Fn::Sub: "${ProjectName}-PrivateSubnet1Id"
@@ -51,31 +56,52 @@ Resources:
         - Key: Name
           Value: !Sub "${ProjectName}-db-subnet-group"
 
-  RDSInstance:
-    Type: AWS::RDS::DBInstance
+  AuroraCluster:
+    Type: AWS::RDS::DBCluster
     DeletionPolicy: Snapshot
     Properties:
-      DBInstanceIdentifier: !Sub "${ProjectName}-postgres"
-      Engine: postgres
-      EngineVersion: "16.13"
-      DBInstanceClass: !Ref DBInstanceClass
-      AllocatedStorage: 50
-      MaxAllocatedStorage: 200
-      StorageType: gp3
-      DBName: !Ref DBName
+      DBClusterIdentifier: !Sub "${ProjectName}-aurora-cluster"
+      Engine: aurora-postgresql
+      EngineVersion: "16.6"
+      DatabaseName: !Ref DBName
       MasterUsername: !Sub "{{resolve:secretsmanager:litellm/${TenantName}/db-password:SecretString:username}}"
       MasterUserPassword: !Sub "{{resolve:secretsmanager:litellm/${TenantName}/db-password:SecretString:password}}"
-      MultiAZ: true
-      PubliclyAccessible: false
-      VPCSecurityGroups:
-        - !Ref RDSSecurityGroup
       DBSubnetGroupName: !Ref DBSubnetGroup
-      BackupRetentionPeriod: 7
+      VpcSecurityGroupIds:
+        - !Ref RDSSecurityGroup
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: !Ref MinACU
+        MaxCapacity: !Ref MaxACU
       StorageEncrypted: true
+      BackupRetentionPeriod: 7
       DeletionProtection: true
       Tags:
         - Key: Name
-          Value: !Sub "${ProjectName}-postgres"
+          Value: !Sub "${ProjectName}-aurora-cluster"
+
+  AuroraInstance1:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub "${ProjectName}-aurora-instance-1"
+      DBClusterIdentifier: !Ref AuroraCluster
+      DBInstanceClass: db.serverless
+      Engine: aurora-postgresql
+      PubliclyAccessible: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-aurora-instance-1"
+
+  AuroraInstance2:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub "${ProjectName}-aurora-instance-2"
+      DBClusterIdentifier: !Ref AuroraCluster
+      DBInstanceClass: db.serverless
+      Engine: aurora-postgresql
+      PubliclyAccessible: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-aurora-instance-2"
 
   # --- ElastiCache Redis Serverless ---
   RedisServerless:
@@ -142,13 +168,17 @@ Resources:
 
 Outputs:
   RDSEndpoint:
-    Value: !GetAtt RDSInstance.Endpoint.Address
+    Value: !GetAtt AuroraCluster.Endpoint.Address
     Export:
       Name: !Sub "${ProjectName}-RDSEndpoint"
   RDSPort:
-    Value: !GetAtt RDSInstance.Endpoint.Port
+    Value: !GetAtt AuroraCluster.Endpoint.Port
     Export:
       Name: !Sub "${ProjectName}-RDSPort"
+  RDSReaderEndpoint:
+    Value: !GetAtt AuroraCluster.ReadEndpoint.Address
+    Export:
+      Name: !Sub "${ProjectName}-RDSReaderEndpoint"
   RedisEndpoint:
     Value: !GetAtt RedisServerless.Endpoint.Address
     Export:

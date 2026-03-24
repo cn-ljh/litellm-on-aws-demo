@@ -1,13 +1,25 @@
-# LiteLLM Gateway - AWS Deployment
+# LiteLLM Gateway - AWS Deployment (Aurora Serverless v2)
+
+> Forked from [zhuangyq008/litellm-on-aws](https://github.com/zhuangyq008/litellm-on-aws) — replaced RDS PostgreSQL with **Aurora Serverless v2** for automatic scaling and cost optimization.
 
 ## Architecture
 
 ```
 Internet -> CloudFront (HTTPS) -> ALB (HTTP:80, dual-AZ) -> ECS Fargate (private subnets, 2 replicas)
-                                          |-> RDS PostgreSQL 16.13 (m7g.large, Multi-AZ)
+                                          |-> Aurora Serverless v2 PostgreSQL 16.6 (0.5-4 ACU, Multi-AZ)
                                           |-> ElastiCache Redis Serverless (TLS)
                                           |-> AWS Bedrock (IAM Role)
 ```
+
+## Key Changes from Original
+
+| Component | Original | This Fork |
+|---|---|---|
+| Database | RDS PostgreSQL 16.13 (db.m7g.large, fixed) | Aurora Serverless v2 (0.5-4 ACU, auto-scaling) |
+| Scaling | Manual instance resize | Automatic 0.5 → 4 ACU based on load |
+| HA | Multi-AZ standby (no read traffic) | 2 instances (writer + reader) with failover |
+| Cost | ~$200/month (m7g.large always-on) | Pay per ACU-hour, scales to 0.5 ACU at idle |
+| Storage | gp3, manual allocation 50-200GB | Aurora auto-expanding, no pre-allocation |
 
 ## Access
 
@@ -59,6 +71,26 @@ curl http://<YOUR-ALB-DNS>/chat/completions \
 
 Bedrock models use IAM Task Role (no API key needed). Other providers require API keys in Secrets Manager.
 
+## Deployment
+
+```bash
+git clone https://github.com/cn-ljh/litellm-on-aws-1.git
+cd litellm-on-aws-1
+chmod +x deploy.sh
+./deploy.sh
+```
+
+### Aurora Serverless v2 Scaling Parameters
+
+You can customize ACU range via CloudFormation parameters in `cfn/03-data.yaml`:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MinACU` | 0.5 | Minimum Aurora Capacity Units (cost savings at idle) |
+| `MaxACU` | 4 | Maximum Aurora Capacity Units (peak performance) |
+
+> **Tip**: For dev/test, `MinACU=0.5 / MaxACU=2` is sufficient. For production, consider `MinACU=1 / MaxACU=16`.
+
 ## Audit Logging (DynamoDB)
 
 All API calls (success and failure) are logged to DynamoDB table `litellm-gw-audit-log`.
@@ -94,40 +126,38 @@ aws ecs update-service --cluster litellm-gw-cluster --service litellm-gw-service
   --force-new-deployment --region us-east-1
 ```
 
-## Update LiteLLM Config
-
-1. Edit `config/litellm-config.yaml`
-2. Upload: `aws s3 cp config/litellm-config.yaml s3://litellm-gw-config-<YOUR-ACCOUNT-ID>/litellm-config.yaml`
-3. Redeploy: `aws ecs update-service --cluster litellm-gw-cluster --service litellm-gw-service --force-new-deployment --region us-east-1`
-
 ## CloudFormation Stacks
 
 | Stack | Resources |
 |---|---|
 | `litellm-gw-vpc` | VPC, 2 public + 2 private subnets, IGW, NAT GW |
 | `litellm-gw-secrets` | Secrets Manager (tenant/provider namespace) |
-| `litellm-gw-data` | RDS PostgreSQL, ElastiCache Redis Serverless, S3 config bucket, DynamoDB audit log |
+| `litellm-gw-data` | **Aurora Serverless v2 PostgreSQL**, ElastiCache Redis Serverless, S3 config bucket, DynamoDB audit log |
 | `litellm-gw-ecs` | ECS Fargate cluster, ALB, Task Definition, CloudWatch logs |
 | `litellm-gw-cloudfront` | CloudFront distribution (HTTPS, HTTP/2+3) |
 
-## Troubleshooting / Known Issues
+## Troubleshooting
 
-### 1. PostgreSQL version not available in region
-- **Symptom**: RDS creation fails with "Cannot find version 16.4 for postgres"
-- **Fix**: Check available versions with `aws rds describe-db-engine-versions --engine postgres` and use the latest (e.g., `16.13`)
+### 1. Aurora PostgreSQL engine version not available
+- **Symptom**: Stack creation fails with engine version error
+- **Fix**: Check available versions: `aws rds describe-db-engine-versions --engine aurora-postgresql --query "DBEngineVersions[?starts_with(EngineVersion,'16')].EngineVersion"`
 
 ### 2. ECS worker processes crash (OOM)
-- **Symptom**: Logs show `Child process [xxx] died` repeatedly with no error message
-- **Fix**: Increase task memory from 2048MB to 4096MB, reduce `--num_workers` from 4 to 2
+- **Symptom**: Logs show `Child process [xxx] died` repeatedly
+- **Fix**: Increase task memory from 2048MB to 4096MB, reduce `--num_workers` to 2
 
 ### 3. Bedrock models require inference profiles
-- **Symptom**: `BedrockException - Invocation of model ID xxx with on-demand throughput isn't supported`
-- **Fix**: Use cross-region inference profile IDs (prefix `us.`), e.g., `us.anthropic.claude-opus-4-6-v1` instead of `anthropic.claude-opus-4-6-v1:0`
+- **Symptom**: `BedrockException - on-demand throughput isn't supported`
+- **Fix**: Use cross-region inference profile IDs (prefix `us.`)
 
 ### 4. ALB Listener lost after stack delete/recreate
-- **Symptom**: ALB exists but no listener, `Connection refused` on port 80
-- **Fix**: Manually create listener or redeploy the ECS stack. Check with `aws elbv2 describe-listeners`
+- **Symptom**: ALB exists but no listener, `Connection refused`
+- **Fix**: deploy.sh includes self-heal logic; or manually create listener
 
 ### 5. ElastiCache Serverless delete fails during stack rollback
-- **Symptom**: Stack delete fails with "Serverless cache is not in an available state"
-- **Fix**: Wait for cache to reach `available` state, then retry `aws cloudformation delete-stack`
+- **Symptom**: Stack delete fails with "not in an available state"
+- **Fix**: Wait for cache to reach `available` state, then retry
+
+### 6. Aurora scaling takes time under sudden load
+- **Symptom**: Slow queries during rapid scale-up
+- **Fix**: Increase `MinACU` to avoid cold-start latency; Aurora scales incrementally
