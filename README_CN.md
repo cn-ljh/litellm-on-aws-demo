@@ -94,7 +94,7 @@ Bedrock 模型默认**未开通**，需要在控制台手动申请：
 │         │ │ OpenAI Key  │ │                            │ │ W + R     │ │  │
 │         │ │Anthropic Key│ │                            │ └────────────┘ │  │
 │         │ │ Gemini Key  │ │                            │ ┌────────────┐ │  │
-│         │ └─────────────┘ │                            │ │Redis (TLS) │ │  │
+│         │ └─────────────┘ │                            │ │Valkey (TLS) │ │  │
 │         └─────────────────┘                            │ └────────────┘ │  │
 │                                                        └─────────────────┘  │
 │         ┌──────────────────────────────────────────────┐                    │
@@ -117,7 +117,7 @@ Bedrock 模型默认**未开通**，需要在控制台手动申请：
 | 负载均衡 | ALB | 双 AZ, 内部 |
 | 计算 | ECS Fargate | 1 vCPU / 4GB × 2 副本 |
 | 数据库 | Aurora Serverless v2 | PostgreSQL 16, 0.5-4 ACU |
-| 缓存 | ElastiCache Redis | Serverless, TLS |
+| 缓存 | ElastiCache Valkey | Serverless, TLS |
 | 审计日志 | PostgreSQL SpendLogs | 内置, 零额外成本 |
 | 密钥 | Secrets Manager | 自动生成 Master Key |
 
@@ -480,7 +480,7 @@ done
 |------|-----------|------|
 | Aurora Serverless v2 | $30–$150 | 空闲 ~$43 (0.5 ACU)；中等负载 ~$172 |
 | ECS Fargate (2副本) | ~$75 | 1 vCPU / 4GB × 2 |
-| ElastiCache Redis | ~$20 | Serverless |
+| ElastiCache Valkey | ~$6 | Serverless (100MB min) |
 | NAT Gateway | ~$35 | $0.045/hr + 流量 |
 | CloudFront 等 | ~$10 | 按请求计费 |
 | **基础设施合计** | **$170–$290** | 不含模型调用费 |
@@ -523,7 +523,7 @@ Bedrock 模型访问未开通。前往 [Bedrock 控制台](https://console.aws.a
 - `ec2:*` — VPC、子网、安全组、NAT
 - `ecs:*` — 集群、服务、任务
 - `rds:*` — Aurora 集群
-- `elasticache:*` — Redis Serverless
+- `elasticache:*` — Valkey Serverless
 - `s3:*` — 配置桶
 - `cloudfront:*` — CDN 分发
 - `secretsmanager:*` — 密钥管理

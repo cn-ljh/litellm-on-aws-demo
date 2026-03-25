@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: "LiteLLM Gateway - Aurora Serverless v2 PostgreSQL + ElastiCache Redis Serverless + S3 Config"
+Description: "LiteLLM Gateway - Aurora Serverless v2 PostgreSQL + Optional Valkey Cache + S3 Config"
 
 Parameters:
   ProjectName:
@@ -103,13 +103,13 @@ Resources:
         - Key: Name
           Value: !Sub "${ProjectName}-aurora-instance-2"
 
-  # --- ElastiCache Redis Serverless ---
+  # --- Optional Valkey Cache ---
   RedisServerless:
     Type: AWS::ElastiCache::ServerlessCache
     Properties:
-      Engine: redis
+      Engine: valkey
       ServerlessCacheName: !Sub "${ProjectName}-redis"
-      Description: "LiteLLM Redis cache (serverless)"
+      Description: "LiteLLM cache (Valkey Serverless)"
       SecurityGroupIds:
         - !Ref RedisSecurityGroup
       SubnetIds:

@@ -485,7 +485,7 @@ done
 |-----------|---------------|-------|
 | Aurora Serverless v2 | $30–$150 | Idle ~$43 (0.5 ACU); moderate ~$172 (2 ACU) |
 | ECS Fargate (2 replicas) | ~$75 | 1 vCPU / 4GB × 2 |
-| ElastiCache Redis | ~$20 | Serverless |
+| ElastiCache Valkey | ~$6 | Serverless (100MB min) |
 | NAT Gateway | ~$35 | $0.045/hr + data |
 | CloudFront + misc | ~$10 | Per request |
 | **Total (infra)** | **$170–$290** | Excludes LLM API costs |
@@ -500,7 +500,7 @@ done
 |-------|-----------|
 | `*-vpc` | VPC, 2 public + 2 private subnets, IGW, NAT GW |
 | `*-secrets` | Secrets Manager (master key, provider API keys) |
-| `*-data` | Aurora Serverless v2, ElastiCache Redis, S3 config |
+| `*-data` | Aurora Serverless v2, ElastiCache Valkey, S3 config |
 | `*-ecs` | ECS Fargate, ALB, Task Definition, IAM, CloudWatch |
 | `*-cloudfront` | CloudFront distribution (HTTPS, HTTP/2+3) |
 
