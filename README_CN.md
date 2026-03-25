@@ -163,7 +163,7 @@ PROJECT_NAME=my-llm-gw TENANT_NAME=myteam AWS_REGION=us-west-2 ./deploy.sh
 |------|------|-----------|
 | 1. VPC 网络 | ~2 分钟 | VPC、子网、NAT |
 | 2. 密钥管理 | ~1 分钟 | Secrets Manager |
-| 3. 数据层 | ~10-15 分钟 | Aurora、Redis、S3 |
+| 3. 数据层 | ~10-15 分钟 | Aurora、Valkey、S3 |
 | 4. 应用层 | ~3-5 分钟 | ECS、ALB、IAM |
 | 5. CDN 层 | ~3-5 分钟 | CloudFront |
 
@@ -544,7 +544,7 @@ Bedrock 模型访问未开通。前往 [Bedrock 控制台](https://console.aws.a
 | ALB 访问 | 开放 | 通过 CloudFront 托管前缀列表或 WAF 限制 |
 | Master Key | 自动生成 | 定期轮换，限制分发范围 |
 | 数据库 | Multi-AZ + 加密 | 生产就绪 |
-| Redis | TLS 加密 | 生产就绪 |
+| Valkey | TLS 加密 | 生产就绪 |
 | NAT | 单 AZ | 高可用场景添加第二个 NAT |
 
 ---
@@ -556,7 +556,7 @@ litellm-on-aws-demo/
 ├── cfn/
 │   ├── 01-vpc.yaml              # 网络层
 │   ├── 02-secrets.yaml          # 密钥管理
-│   ├── 03-data.yaml             # Aurora、Redis、S3
+│   ├── 03-data.yaml             # Aurora、Valkey、S3
 │   ├── 04-ecs.yaml              # ECS、ALB、IAM
 │   └── 05-cloudfront.yaml       # CloudFront
 ├── config/

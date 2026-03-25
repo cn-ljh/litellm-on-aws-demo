@@ -38,7 +38,7 @@ Deploy [LiteLLM Proxy](https://github.com/BerriAI/litellm) on AWS as a unified, 
 │                                               │  └───────────────────┘   │ │
 │                                               │                          │ │
 │                                               │  ┌──────────┐           │ │
-│                                               │  │  Redis    │           │ │
+│                                               │  │ Valkey   │           │ │
 │                                               │  │  (TLS)    │           │ │
 │                                               │  └──────────┘           │ │
 │                                               └────────────────────────────┘ │
@@ -238,7 +238,7 @@ PROJECT_NAME=my-llm-gw TENANT_NAME=myteam AWS_REGION=us-west-2 ./deploy.sh
 |-------|------|-----------|
 | 1. VPC | ~2 min | VPC, subnets, IGW, NAT GW |
 | 2. Secrets | ~1 min | Secrets Manager |
-| 3. Data | ~10-15 min | Aurora Serverless v2, Redis, S3 |
+| 3. Data | ~10-15 min | Aurora Serverless v2, Valkey, S3 |
 | 4. ECS | ~3-5 min | ECS Fargate, ALB, IAM, CloudWatch |
 | 5. CloudFront | ~3-5 min | CloudFront (HTTPS) |
 
@@ -511,7 +511,7 @@ litellm-on-aws/
 ├── cfn/
 │   ├── 01-vpc.yaml              # Network
 │   ├── 02-secrets.yaml          # Secrets Manager
-│   ├── 03-data.yaml             # Aurora, Redis, S3
+│   ├── 03-data.yaml             # Aurora, Valkey, S3
 │   ├── 04-ecs.yaml              # ECS, ALB, IAM
 │   └── 05-cloudfront.yaml       # CloudFront
 ├── config/
@@ -586,7 +586,7 @@ Normal — global edge node sync takes 5–15 minutes.
 | ALB access | Open | Restrict to CloudFront via managed prefix list or WAF |
 | Master Key | Auto-generated | Rotate periodically, limit distribution |
 | Database | Multi-AZ + encrypted | Production-ready |
-| Redis | TLS encrypted | Production-ready |
+| Valkey | TLS encrypted | Production-ready |
 | NAT Gateway | Single AZ | Add second NAT for HA |
 
 <details>
