@@ -241,6 +241,43 @@ aws ecs update-service \
 
 ---
 
+## Use with Claude Code
+
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code) can connect to your LiteLLM gateway as a custom backend. Two configuration methods:
+
+### Method 1: Environment Variables
+
+```bash
+export ANTHROPIC_AUTH_TOKEN="sk-xxx"                          # Your LiteLLM Virtual Key
+export ANTHROPIC_BASE_URL="https://<YOUR_CLOUDFRONT_DOMAIN>"  # Your gateway endpoint
+export ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-4-6"
+export ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-haiku-4-5"
+export ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-4-6"
+```
+
+> Add to `~/.bashrc` or `~/.zshrc` to persist across sessions.
+
+### Method 2: Settings File (`~/.claude/settings.json`)
+
+```json
+{
+  "permissions": {
+    "allow": []
+  },
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "sk-xxx",
+    "ANTHROPIC_BASE_URL": "https://<YOUR_CLOUDFRONT_DOMAIN>",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-4-6",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-6"
+  }
+}
+```
+
+This routes all Claude Code requests through your LiteLLM gateway, using Bedrock as the backend — no Anthropic API key needed.
+
+---
+
 ## User & Key Management
 
 ### Create a Virtual Key

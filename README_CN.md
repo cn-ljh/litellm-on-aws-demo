@@ -287,6 +287,43 @@ curl https://<YOUR_CLOUDFRONT_DOMAIN>/chat/completions \
 
 ---
 
+## 配合 Claude Code 使用
+
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code) 可以连接 LiteLLM 网关作为自定义后端。支持两种配置方式：
+
+### 方式一：环境变量
+
+```bash
+export ANTHROPIC_AUTH_TOKEN="sk-xxx"                          # LiteLLM Virtual Key
+export ANTHROPIC_BASE_URL="https://<YOUR_CLOUDFRONT_DOMAIN>"  # 网关地址
+export ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-4-6"
+export ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-haiku-4-5"
+export ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-4-6"
+```
+
+> 添加到 `~/.bashrc` 或 `~/.zshrc` 中可持久化。
+
+### 方式二：配置文件（`~/.claude/settings.json`）
+
+```json
+{
+  "permissions": {
+    "allow": []
+  },
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "sk-xxx",
+    "ANTHROPIC_BASE_URL": "https://<YOUR_CLOUDFRONT_DOMAIN>",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-4-6",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-6"
+  }
+}
+```
+
+配置后，Claude Code 的所有请求都将通过 LiteLLM 网关路由到 Bedrock，无需 Anthropic API Key。
+
+---
+
 ## 用户和 Key 管理
 
 ### 创建用户 Key
