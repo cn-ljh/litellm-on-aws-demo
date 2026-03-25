@@ -7,6 +7,14 @@ REGION="${AWS_REGION:-us-east-1}"
 CFN_DIR="$(cd "$(dirname "$0")/cfn" && pwd)"
 CONFIG_DIR="$(cd "$(dirname "$0")/config" && pwd)"
 
+# Auto-detect latest LiteLLM stable release, or use pinned version
+if [ -z "${LITELLM_VERSION:-}" ]; then
+  log "Detecting latest LiteLLM stable release..."
+  LITELLM_VERSION=$(curl -s "https://api.github.com/repos/BerriAI/litellm/releases"     | python3 -c "import sys,json;releases=json.load(sys.stdin);print(next(r['tag_name'] for r in releases if 'stable' in r['tag_name']))" 2>/dev/null     || echo "v1.82.3-stable.patch.2")
+  log "Using LiteLLM ${LITELLM_VERSION}"
+fi
+LITELLM_IMAGE="ghcr.io/berriai/litellm:main-${LITELLM_VERSION}"
+
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 
 wait_stack() {
@@ -54,12 +62,12 @@ deploy_stack "${PROJECT_NAME}-vpc" "${CFN_DIR}/01-vpc.yaml" \
 # ========== Step 2: Secrets ==========
 deploy_stack "${PROJECT_NAME}-secrets" "${CFN_DIR}/02-secrets.yaml" \
   "ParameterKey=ProjectName,ParameterValue=${PROJECT_NAME}" \
-  "ParameterKey=TenantName,ParameterValue=${TENANT_NAME}"
+  "ParameterKey=TenantName,ParameterValue=${TENANT_NAME}" \
 
 # ========== Step 3: Data (RDS + Redis + S3) ==========
 deploy_stack "${PROJECT_NAME}-data" "${CFN_DIR}/03-data.yaml" \
   "ParameterKey=ProjectName,ParameterValue=${PROJECT_NAME}" \
-  "ParameterKey=TenantName,ParameterValue=${TENANT_NAME}"
+  "ParameterKey=TenantName,ParameterValue=${TENANT_NAME}" \
 
 # ========== Step 4: Upload LiteLLM Config to S3 ==========
 CONFIG_BUCKET=$(aws cloudformation describe-stacks \
@@ -74,7 +82,8 @@ aws s3 cp "${CONFIG_DIR}/litellm-config.yaml" "s3://${CONFIG_BUCKET}/litellm-con
 # ========== Step 5: ECS + ALB ==========
 deploy_stack "${PROJECT_NAME}-ecs" "${CFN_DIR}/04-ecs.yaml" \
   "ParameterKey=ProjectName,ParameterValue=${PROJECT_NAME}" \
-  "ParameterKey=TenantName,ParameterValue=${TENANT_NAME}"
+  "ParameterKey=TenantName,ParameterValue=${TENANT_NAME}" \
+  "ParameterKey=LiteLLMImage,ParameterValue=${LITELLM_IMAGE}"
 
 # ========== Step 5.1: Verify ALB Listener (self-heal) ==========
 # CloudFormation has a known issue where ALB Listener can be marked CREATE_COMPLETE

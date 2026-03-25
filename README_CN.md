@@ -143,6 +143,7 @@ cd litellm-on-aws-demo
 | `PROJECT_NAME` | `litellm-gw` | 所有资源的命名前缀 |
 | `TENANT_NAME` | `default` | Secrets Manager 命名空间 |
 | `AWS_REGION` | `us-east-1` | 部署区域 |
+| `LITELLM_VERSION` | *(自动检测最新稳定版)* | 指定版本，如 `v1.82.3-stable.patch.2` |
 
 ### 第 3 步：执行部署
 

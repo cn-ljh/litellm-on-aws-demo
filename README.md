@@ -222,6 +222,7 @@ Required only if using non-Bedrock providers:
 | `PROJECT_NAME` | `litellm-gw` | Resource naming prefix |
 | `TENANT_NAME` | `default` | Secrets Manager namespace |
 | `AWS_REGION` | `us-east-1` | Target region |
+| `LITELLM_VERSION` | *(auto-detect)* | Pin a specific version, e.g. `v1.82.3-stable.patch.2` |
 | `MinACU` | `0.5` | Aurora minimum capacity (ACU) |
 | `MaxACU` | `4` | Aurora maximum capacity (ACU) |
 
