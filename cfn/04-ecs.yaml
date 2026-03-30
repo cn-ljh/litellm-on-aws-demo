@@ -22,6 +22,18 @@ Parameters:
   DesiredCount:
     Type: Number
     Default: 2
+  MinCapacity:
+    Type: Number
+    Default: 2
+    Description: "Minimum number of ECS tasks"
+  MaxCapacity:
+    Type: Number
+    Default: 4
+    Description: "Maximum number of ECS tasks"
+  CpuTargetValue:
+    Type: Number
+    Default: 70
+    Description: "Target CPU utilization percentage for scaling"
   DBName:
     Type: String
     Default: litellm
@@ -380,6 +392,56 @@ Resources:
         MinimumHealthyPercent: 100
         MaximumPercent: 200
       HealthCheckGracePeriodSeconds: 120
+
+  # --- Auto Scaling ---
+  AutoScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-autoscaling-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: application-autoscaling.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ECSAutoScaling
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecs:DescribeServices
+                  - ecs:UpdateService
+                  - cloudwatch:PutMetricAlarm
+                  - cloudwatch:DescribeAlarms
+                  - cloudwatch:DeleteAlarms
+                Resource: "*"
+
+  ScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    DependsOn: ECSService
+    Properties:
+      MaxCapacity: !Ref MaxCapacity
+      MinCapacity: !Ref MinCapacity
+      ResourceId: !Sub "service/${ECSCluster}/${ECSService.Name}"
+      RoleARN: !GetAtt AutoScalingRole.Arn
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  CpuScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${ProjectName}-cpu-scaling"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        TargetValue: !Ref CpuTargetValue
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 60
 
 Outputs:
   ALBDnsName:
