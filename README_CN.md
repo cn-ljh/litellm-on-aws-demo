@@ -492,6 +492,40 @@ done
 
 ## 常见问题
 
+### Q: 通过 UI 创建用户后，Key 报 "model not allowed"（403）
+
+通过 LiteLLM Admin UI 创建用户时，界面没有模型选择框。用户的 `models` 默认值为 `["no-default-models"]`，**会阻止访问所有模型**——即使生成 Key 时选了模型也不行。
+
+**方案 1：通过 API 修改用户的 models**
+
+```bash
+# 设为空数组 = 允许所有模型
+curl https://<YOUR_CLOUDFRONT_DOMAIN>/user/update \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "<USER_ID>", "models": []}'
+
+# 或限制特定模型
+curl https://<YOUR_CLOUDFRONT_DOMAIN>/user/update \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "<USER_ID>", "models": ["claude-sonnet-4-6", "claude-haiku-4-5"]}'
+```
+
+**方案 2：使用 Team 管理（推荐）**
+
+创建 Team 时指定允许的模型，然后将用户分配到该 Team。Team 的模型权限会覆盖用户默认设置。
+
+```bash
+curl https://<YOUR_CLOUDFRONT_DOMAIN>/team/new \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"team_alias": "dev-team", "models": ["claude-sonnet-4-6", "claude-haiku-4-5", "claude-opus-4-6"]}'
+```
+
+> 这是 LiteLLM UI 的已知限制——创建用户界面没有提供模型选择器。
+
+
 ### Q: 部署报错 "engine version not available"
 
 目标区域不支持该 PostgreSQL 版本。查询可用版本：

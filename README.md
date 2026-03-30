@@ -525,6 +525,42 @@ litellm-on-aws/
 
 ## Troubleshooting
 
+
+<details>
+<summary><b>User key returns "model not allowed" (403) after creating user via UI</b></summary>
+
+When creating users through the LiteLLM Admin UI, there is no model selection field. The default `models` value is set to `["no-default-models"]`, which **blocks access to all models** — even if you later select models when generating a key.
+
+**Fix Option 1: Update user models via API**
+
+```bash
+# Set models to empty array = allow all models
+curl https://<YOUR_CLOUDFRONT_DOMAIN>/user/update \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "<USER_ID>", "models": []}'
+
+# Or restrict to specific models
+curl https://<YOUR_CLOUDFRONT_DOMAIN>/user/update \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "<USER_ID>", "models": ["claude-sonnet-4-6", "claude-haiku-4-5"]}'
+```
+
+**Fix Option 2: Use Teams (recommended)**
+
+Create a Team with allowed models, then assign users to that Team. Team-level model permissions override the user default.
+
+```bash
+# Create team with model access
+curl https://<YOUR_CLOUDFRONT_DOMAIN>/team/new \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"team_alias": "dev-team", "models": ["claude-sonnet-4-6", "claude-haiku-4-5", "claude-opus-4-6"]}'
+```
+
+> This is a known LiteLLM UI limitation — the user creation form does not expose a model selector.
+</details>
 <details>
 <summary><b>Aurora engine version not available</b></summary>
 
