@@ -7,6 +7,8 @@ REGION="${AWS_REGION:-us-east-1}"
 CFN_DIR="$(cd "$(dirname "$0")/cfn" && pwd)"
 CONFIG_DIR="$(cd "$(dirname "$0")/config" && pwd)"
 
+log() { echo "[$(date '+%H:%M:%S')] $*"; }
+
 # Auto-detect latest LiteLLM stable release, or use pinned version
 if [ -z "${LITELLM_VERSION:-}" ]; then
   log "Detecting latest LiteLLM stable release..."
@@ -15,7 +17,6 @@ if [ -z "${LITELLM_VERSION:-}" ]; then
 fi
 LITELLM_IMAGE="ghcr.io/berriai/litellm:main-${LITELLM_VERSION}"
 
-log() { echo "[$(date '+%H:%M:%S')] $*"; }
 
 wait_stack() {
   local stack_name="$1"
