@@ -13,6 +13,7 @@
 - **Bedrock 免配置** — 通过 IAM Role 认证，无需 API Key
 - **内置审计日志** — 所有调用自动记录到 PostgreSQL，零额外成本
 - **Virtual Keys** — 按用户/团队分配 API Key，支持预算和速率限制
+- **ECS 自动伸缩** — 基于 CPU 利用率自动扩缩容（2–4 副本）
 - **一键部署** — 5 个 CloudFormation 堆栈，全自动化
 
 ---
@@ -165,7 +166,7 @@ PROJECT_NAME=my-llm-gw TENANT_NAME=myteam AWS_REGION=us-west-2 ./deploy.sh
 | 1. VPC 网络 | ~2 分钟 | VPC、子网、NAT |
 | 2. 密钥管理 | ~1 分钟 | Secrets Manager |
 | 3. 数据层 | ~10-15 分钟 | Aurora、Valkey、S3 |
-| 4. 应用层 | ~3-5 分钟 | ECS、ALB、IAM |
+| 4. 应用层 | ~3-5 分钟 | ECS、ALB、Auto Scaling、IAM |
 | 5. CDN 层 | ~3-5 分钟 | CloudFront |
 
 部署完成后，脚本会输出：
@@ -434,11 +435,35 @@ curl -s "https://<YOUR_CLOUDFRONT_DOMAIN>/spend/logs?start_date=$(date +%Y-%m-%d
 
 ### 扩缩容
 
+**ECS 自动伸缩**已默认开启，基于 CPU 利用率自动扩缩容：
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `MinCapacity` | 2 | 最小 ECS 任务数 |
+| `MaxCapacity` | 4 | 最大 ECS 任务数 |
+| `CpuTargetValue` | 70 | 目标 CPU 利用率（%） |
+
+扩容冷却：60 秒 · 缩容冷却：300 秒
+
+调整自动伸缩参数：
 ```bash
-# 调整 ECS 副本数
+aws cloudformation update-stack --stack-name <PROJECT_NAME>-ecs \
+  --template-body file://cfn/04-ecs.yaml \
+  --parameters ParameterKey=ProjectName,ParameterValue=<PROJECT_NAME> \
+               ParameterKey=TenantName,ParameterValue=default \
+               ParameterKey=MinCapacity,ParameterValue=2 \
+               ParameterKey=MaxCapacity,ParameterValue=8 \
+               ParameterKey=CpuTargetValue,ParameterValue=60 \
+  --capabilities CAPABILITY_NAMED_IAM --region <YOUR_REGION>
+```
+
+手动临时调整副本数（Auto Scaling 会自动恢复）：
+```bash
 aws ecs update-service --cluster <PROJECT_NAME>-cluster --service <PROJECT_NAME>-service \
   --desired-count 4 --region <YOUR_REGION>
+```
 
+```bash
 # 调整 Aurora ACU 范围
 aws rds modify-db-cluster --db-cluster-identifier <PROJECT_NAME>-aurora-cluster \
   --serverless-v2-scaling-configuration MinCapacity=1,MaxCapacity=16 \
@@ -480,7 +505,7 @@ done
 | 组件 | 费用 (USD) | 说明 |
 |------|-----------|------|
 | Aurora Serverless v2 | $30–$150 | 空闲 ~$43 (0.5 ACU)；中等负载 ~$172 |
-| ECS Fargate (2副本) | ~$75 | 1 vCPU / 4GB × 2 |
+| ECS Fargate (2–4副本) | ~$75–$150 | 1 vCPU / 4GB × 2–4（自动伸缩） |
 | ElastiCache Valkey | ~$6 | Serverless (100MB min) |
 | NAT Gateway | ~$35 | $0.045/hr + 流量 |
 | CloudFront 等 | ~$10 | 按请求计费 |
@@ -592,7 +617,7 @@ litellm-on-aws-demo/
 │   ├── 01-vpc.yaml              # 网络层
 │   ├── 02-secrets.yaml          # 密钥管理
 │   ├── 03-data.yaml             # Aurora、Valkey、S3
-│   ├── 04-ecs.yaml              # ECS、ALB、IAM
+│   ├── 04-ecs.yaml              # ECS、ALB、Auto Scaling、IAM
 │   └── 05-cloudfront.yaml       # CloudFront
 ├── config/
 │   └── litellm-config.yaml      # 模型路由配置

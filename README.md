@@ -13,6 +13,7 @@ Deploy [LiteLLM Proxy](https://github.com/BerriAI/litellm) on AWS as a unified, 
 - **Zero-config Bedrock** — AWS Bedrock models via IAM Role, no API keys needed
 - **Built-in audit logging** — All calls logged to PostgreSQL SpendLogs at zero extra cost
 - **Virtual Keys** — Per-user/team API keys with budget & rate limits
+- **ECS Auto Scaling** — CPU-based target tracking (2–4 tasks), automatic scale-out/in
 - **One-click deploy** — 5 CloudFormation stacks, fully automated
 
 ## Architecture
@@ -436,11 +437,35 @@ aws logs tail /ecs/<PROJECT_NAME> --follow --region <YOUR_REGION>
 
 ### Scaling
 
+**ECS Auto Scaling** is enabled by default with CPU-based target tracking:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `MinCapacity` | 2 | Minimum number of ECS tasks |
+| `MaxCapacity` | 4 | Maximum number of ECS tasks |
+| `CpuTargetValue` | 70 | Target CPU utilization (%) |
+
+Scale-out cooldown: 60s · Scale-in cooldown: 300s
+
+To adjust Auto Scaling parameters:
 ```bash
-# ECS replicas
+aws cloudformation update-stack --stack-name <PROJECT_NAME>-ecs \
+  --template-body file://cfn/04-ecs.yaml \
+  --parameters ParameterKey=ProjectName,ParameterValue=<PROJECT_NAME> \
+               ParameterKey=TenantName,ParameterValue=default \
+               ParameterKey=MinCapacity,ParameterValue=2 \
+               ParameterKey=MaxCapacity,ParameterValue=8 \
+               ParameterKey=CpuTargetValue,ParameterValue=60 \
+  --capabilities CAPABILITY_NAMED_IAM --region <YOUR_REGION>
+```
+
+To manually override replica count (temporary, Auto Scaling will adjust):
+```bash
 aws ecs update-service --cluster <PROJECT_NAME>-cluster --service <PROJECT_NAME>-service \
   --desired-count 4 --region <YOUR_REGION>
+```
 
+```bash
 # Aurora ACU range
 aws rds modify-db-cluster --db-cluster-identifier <PROJECT_NAME>-aurora-cluster \
   --serverless-v2-scaling-configuration MinCapacity=1,MaxCapacity=16 \
@@ -485,7 +510,7 @@ done
 | Component | Estimate (USD) | Notes |
 |-----------|---------------|-------|
 | Aurora Serverless v2 | $30–$150 | Idle ~$43 (0.5 ACU); moderate ~$172 (2 ACU) |
-| ECS Fargate (2 replicas) | ~$75 | 1 vCPU / 4GB × 2 |
+| ECS Fargate (2–4 replicas) | ~$75–$150 | 1 vCPU / 4GB × 2–4 (Auto Scaling) |
 | ElastiCache Valkey | ~$6 | Serverless (100MB min) |
 | NAT Gateway | ~$35 | $0.045/hr + data |
 | CloudFront + misc | ~$10 | Per request |
@@ -502,7 +527,7 @@ done
 | `*-vpc` | VPC, 2 public + 2 private subnets, IGW, NAT GW |
 | `*-secrets` | Secrets Manager (master key, provider API keys) |
 | `*-data` | Aurora Serverless v2, ElastiCache Valkey, S3 config |
-| `*-ecs` | ECS Fargate, ALB, Task Definition, IAM, CloudWatch |
+| `*-ecs` | ECS Fargate, ALB, Auto Scaling, Task Definition, IAM, CloudWatch |
 | `*-cloudfront` | CloudFront distribution (HTTPS, HTTP/2+3) |
 
 ## Project Structure
