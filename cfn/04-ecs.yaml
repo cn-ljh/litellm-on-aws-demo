@@ -13,8 +13,8 @@ Parameters:
     Default: ghcr.io/berriai/litellm:main-latest
   TaskCpu:
     Type: String
-    Default: "1024"
-    AllowedValues: ["512", "1024", "2048", "4096"]
+    Default: "512"
+    AllowedValues: ["256", "512", "1024", "2048", "4096"]
   TaskMemory:
     Type: String
     Default: "4096"
@@ -287,6 +287,9 @@ Resources:
       NetworkMode: awsvpc
       RequiresCompatibilities:
         - FARGATE
+      RuntimePlatform:
+        CpuArchitecture: ARM64
+        OperatingSystemFamily: LINUX
       ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
       TaskRoleArn: !GetAtt ECSTaskRole.Arn
       ContainerDefinitions:

@@ -14,6 +14,7 @@ Deploy [LiteLLM Proxy](https://github.com/BerriAI/litellm) on AWS as a unified, 
 - **Built-in audit logging** — All calls logged to PostgreSQL SpendLogs at zero extra cost
 - **Virtual Keys** — Per-user/team API keys with budget & rate limits
 - **ECS Auto Scaling** — CPU-based target tracking (2–4 tasks), automatic scale-out/in
+- **Graviton (ARM64)** — 20% lower compute cost with AWS Graviton processors
 - **One-click deploy** — 5 CloudFormation stacks, fully automated
 
 ## Architecture
@@ -510,11 +511,11 @@ done
 | Component | Estimate (USD) | Notes |
 |-----------|---------------|-------|
 | Aurora Serverless v2 | $30–$150 | Idle ~$43 (0.5 ACU); moderate ~$172 (2 ACU) |
-| ECS Fargate (2–4 replicas) | ~$75–$150 | 1 vCPU / 4GB × 2–4 (Auto Scaling) |
+| ECS Fargate (2–4 replicas) | ~$50–$100 | 0.5 vCPU / 4GB × 2–4 (Graviton, Auto Scaling) |
 | ElastiCache Valkey | ~$6 | Serverless (100MB min) |
 | NAT Gateway | ~$35 | $0.045/hr + data |
 | CloudFront + misc | ~$10 | Per request |
-| **Total (infra)** | **$170–$290** | Excludes LLM API costs |
+| **Total (infra)** | **$140–$240** | Excludes LLM API costs |
 
 > Compared to fixed RDS (~$200/month DB alone), Aurora Serverless v2 saves ~**70%** at low utilization.
 
@@ -527,7 +528,7 @@ done
 | `*-vpc` | VPC, 2 public + 2 private subnets, IGW, NAT GW |
 | `*-secrets` | Secrets Manager (master key, provider API keys) |
 | `*-data` | Aurora Serverless v2, ElastiCache Valkey, S3 config |
-| `*-ecs` | ECS Fargate, ALB, Auto Scaling, Task Definition, IAM, CloudWatch |
+| `*-ecs` | ECS Fargate (Graviton/ARM64), ALB, Auto Scaling, Task Definition, IAM, CloudWatch |
 | `*-cloudfront` | CloudFront distribution (HTTPS, HTTP/2+3) |
 
 ## Project Structure

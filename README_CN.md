@@ -14,6 +14,7 @@
 - **内置审计日志** — 所有调用自动记录到 PostgreSQL，零额外成本
 - **Virtual Keys** — 按用户/团队分配 API Key，支持预算和速率限制
 - **ECS 自动伸缩** — 基于 CPU 利用率自动扩缩容（2–4 副本）
+- **Graviton (ARM64)** — 使用 AWS Graviton 处理器，计算成本降低 20%
 - **一键部署** — 5 个 CloudFormation 堆栈，全自动化
 
 ---
@@ -116,7 +117,7 @@ Bedrock 模型默认**未开通**，需要在控制台手动申请：
 |------|----------|------|
 | CDN/HTTPS | CloudFront | HTTPS 终结, HTTP/2+3 |
 | 负载均衡 | ALB | 双 AZ, 内部 |
-| 计算 | ECS Fargate | 1 vCPU / 4GB × 2 副本 |
+| 计算 | ECS Fargate (Graviton) | 0.5 vCPU / 4GB × 2 副本 |
 | 数据库 | Aurora Serverless v2 | PostgreSQL 16, 0.5-4 ACU |
 | 缓存 | ElastiCache Valkey | Serverless, TLS |
 | 审计日志 | PostgreSQL SpendLogs | 内置, 零额外成本 |
@@ -505,11 +506,11 @@ done
 | 组件 | 费用 (USD) | 说明 |
 |------|-----------|------|
 | Aurora Serverless v2 | $30–$150 | 空闲 ~$43 (0.5 ACU)；中等负载 ~$172 |
-| ECS Fargate (2–4副本) | ~$75–$150 | 1 vCPU / 4GB × 2–4（自动伸缩） |
+| ECS Fargate (2–4副本) | ~$50–$100 | 0.5 vCPU / 4GB × 2–4（Graviton，自动伸缩） |
 | ElastiCache Valkey | ~$6 | Serverless (100MB min) |
 | NAT Gateway | ~$35 | $0.045/hr + 流量 |
 | CloudFront 等 | ~$10 | 按请求计费 |
-| **基础设施合计** | **$170–$290** | 不含模型调用费 |
+| **基础设施合计** | **$140–$240** | 不含模型调用费 |
 
 > 💰 相比原版 RDS db.m7g.large（仅数据库 ~$200/月），Aurora Serverless v2 在低负载时节省约 **70%** 数据库成本。
 
