@@ -170,6 +170,13 @@ Resources:
           Fn::Sub: "${ProjectName}-PublicSubnet2Id"
       SecurityGroups:
         - !Ref ALBSecurityGroup
+      LoadBalancerAttributes:
+        # Default 60s is too low for long-running LLM calls (e.g. Claude
+        # long-context POST /v1/messages without streaming regularly exceeds
+        # 60s TTFB and triggers OriginCommError / 504 at CloudFront).
+        # 4000s matches AWS ALB maximum.
+        - Key: idle_timeout.timeout_seconds
+          Value: "4000"
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-alb"

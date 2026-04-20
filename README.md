@@ -639,6 +639,39 @@ aws elasticache describe-serverless-caches --serverless-cache-name <PROJECT_NAME
 Normal — global edge node sync takes 5–15 minutes.
 </details>
 
+<details>
+<summary><b>Intermittent 504 Gateway Timeout on long POST /v1/messages (Claude long-context)</b></summary>
+
+**Symptom**: Clients using the Anthropic Messages API (`POST /v1/messages`) against `https://<YOUR_CLOUDFRONT_DOMAIN>` occasionally get 504 errors after exactly ~60 seconds, while the ECS/LiteLLM backend logs the same request as `200 OK`. CloudFront access logs show `x-edge-detailed-result-type = OriginCommError` and `time-taken ≈ 60.1s`.
+
+**Root cause**: Both the ALB (default `idle_timeout = 60s`) and the CloudFront origin (default `OriginReadTimeout = 60s`) cut the upstream connection before the LLM finishes. Claude long-context / non-streaming calls commonly exceed 60s TTFB, especially for Opus / extended-thinking requests.
+
+**Fix (already in this repo in this release)**:
+- `cfn/04-ecs.yaml` sets ALB `idle_timeout.timeout_seconds = 4000` (ALB max).
+- `cfn/05-cloudfront.yaml` sets `OriginReadTimeout = 120` (CloudFront quota max, adjustable) and `OriginKeepaliveTimeout = 60`.
+
+**One-shot patch for an already-deployed stack** (no redeploy needed):
+
+```bash
+# Raise ALB idle timeout
+aws elbv2 modify-load-balancer-attributes --region <YOUR_REGION> \
+  --load-balancer-arn <ALB_ARN> \
+  --attributes Key=idle_timeout.timeout_seconds,Value=4000
+
+# Raise CloudFront origin timeouts (update the distribution config)
+aws cloudfront get-distribution-config --id <DIST_ID> > /tmp/cf.json
+ETAG=$(jq -r .ETag /tmp/cf.json)
+jq '.DistributionConfig
+    | .Origins.Items[0].CustomOriginConfig.OriginReadTimeout = 120
+    | .Origins.Items[0].CustomOriginConfig.OriginKeepaliveTimeout = 60' \
+  /tmp/cf.json > /tmp/cf-new.json
+aws cloudfront update-distribution --id <DIST_ID> --if-match "$ETAG" \
+  --distribution-config file:///tmp/cf-new.json
+```
+
+**Recommendation**: Even after raising the timeouts, prefer streaming (`"stream": true`) from your client. Streaming sends chunks continuously, so the ALB idle timer never fires and p99 latency is much better.
+</details>
+
 ---
 
 ## Security Recommendations

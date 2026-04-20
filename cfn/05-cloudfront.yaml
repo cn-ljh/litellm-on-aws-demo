@@ -24,8 +24,13 @@ Resources:
             CustomOriginConfig:
               HTTPPort: 80
               OriginProtocolPolicy: http-only
-              OriginReadTimeout: 60
-              OriginKeepaliveTimeout: 30
+              # Raised from 60s to avoid 504 OriginCommError on long-running
+              # POST /v1/messages (Claude long-context / non-streaming) requests.
+              # 120s is CloudFront's default quota upper bound (L-AECE9FA7).
+              OriginReadTimeout: 120
+              # Raised from 30s -> 60s so the TCP/TLS connection to the ALB
+              # is reused across back-to-back long LLM calls.
+              OriginKeepaliveTimeout: 60
             OriginCustomHeaders:
               - HeaderName: X-CloudFront-Verify
                 HeaderValue: !Select

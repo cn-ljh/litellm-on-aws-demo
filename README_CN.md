@@ -577,6 +577,37 @@ aws rds describe-db-engine-versions --engine aurora-postgresql \
 
 Bedrock 模型访问未开通。前往 [Bedrock 控制台](https://console.aws.amazon.com/bedrock/home#/modelaccess) 申请模型访问权限。
 
+### Q: 通过 CloudFront 调用 POST /v1/messages 偶发 504（OriginCommError）
+
+**现象**：客户端用 Anthropic Messages API（`POST /v1/messages`）访问 `https://<YOUR_CLOUDFRONT_DOMAIN>` 时偶尔收到 504，且耗时正好 ~60 秒；但 ECS / LiteLLM 侧日志显示同一次请求 `200 OK`。CloudFront 访问日志里可以看到 `x-edge-detailed-result-type = OriginCommError`、`time-taken ≈ 60.1s`。
+
+**根因**：默认情况下 ALB 的 `idle_timeout = 60s`、CloudFront 的 `OriginReadTimeout = 60s`，都会在 60 秒内"无字节传输"时主动 RST 连接。Claude 长上下文 / 非流式请求（尤其 Opus 或开启 extended thinking）TTFB 很容易超过 60 秒，于是被中间层切断，CloudFront 给客户端抛 504。
+
+**修复（本次更新起已修复）**：
+- `cfn/04-ecs.yaml` 设置 ALB `idle_timeout.timeout_seconds = 4000`（ALB 上限）。
+- `cfn/05-cloudfront.yaml` 设置 `OriginReadTimeout = 120`（CloudFront 配额上限，可通过 Service Quotas 申请增加）、`OriginKeepaliveTimeout = 60`。
+
+**对已部署的栈做一次性热修**（无需重建）：
+
+```bash
+# 1) 调高 ALB 空闲超时
+aws elbv2 modify-load-balancer-attributes --region <YOUR_REGION> \
+  --load-balancer-arn <ALB_ARN> \
+  --attributes Key=idle_timeout.timeout_seconds,Value=4000
+
+# 2) 调高 CloudFront 源站超时
+aws cloudfront get-distribution-config --id <DIST_ID> > /tmp/cf.json
+ETAG=$(jq -r .ETag /tmp/cf.json)
+jq '.DistributionConfig
+    | .Origins.Items[0].CustomOriginConfig.OriginReadTimeout = 120
+    | .Origins.Items[0].CustomOriginConfig.OriginKeepaliveTimeout = 60' \
+  /tmp/cf.json > /tmp/cf-new.json
+aws cloudfront update-distribution --id <DIST_ID> --if-match "$ETAG" \
+  --distribution-config file:///tmp/cf-new.json
+```
+
+**建议**：即使调大超时，客户端也强烈建议使用流式响应（`"stream": true`）。流式每秒都有 chunk 下行，ALB 的 idle 计时器永远不会触发，首 token 体验和 p99 延迟都会明显改善。
+
 ### Q: 部署需要哪些 IAM 权限？
 
 最低权限需要覆盖：
