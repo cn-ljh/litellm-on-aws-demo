@@ -672,6 +672,44 @@ aws cloudfront update-distribution --id <DIST_ID> --if-match "$ETAG" \
 **Recommendation**: Even after raising the timeouts, prefer streaming (`"stream": true`) from your client. Streaming sends chunks continuously, so the ALB idle timer never fires and p99 latency is much better.
 </details>
 
+<details>
+<summary><b>400 <code>context_management: Extra inputs are not permitted</code> from Claude Code / other new Anthropic clients</b></summary>
+
+**Symptom**: Calls to `POST /v1/messages` with a `context_management` field (auto-injected by Claude Code 2.1.116+ and some newer Anthropic SDK versions for context compaction) fail with:
+
+```
+API Error: 400 {"error":{"message":"{\"message\":\"context_management: Extra inputs are not permitted\"}.
+Received Model Group=claude-sonnet-4-6 ..."}}
+```
+
+**Root cause**: AWS Bedrock's Anthropic Invoke endpoint does not accept the `context_management` parameter yet (as of 2026-04). LiteLLM forwards the field unchanged through the `/v1/messages` route (Anthropic passthrough), and Bedrock rejects it with the strict Pydantic message above. Note that `additional_drop_params: [context_management]` set under `litellm_settings` / `litellm_params` only drops the param on the **OpenAI-format** (`/v1/chat/completions`) path — it does NOT take effect on `/v1/messages`.
+
+**Fix (already in this repo)**: A custom `CustomLogger` pre-call hook strips `context_management` from request data before it reaches Bedrock. Lives in [`config/callbacks/bedrock_ctx_stripper.py`](config/callbacks/bedrock_ctx_stripper.py) and is registered in `config/litellm-config.yaml`:
+
+```yaml
+litellm_settings:
+  callbacks: ["bedrock_ctx_stripper.bedrock_ctx_stripper_instance"]
+```
+
+The callback file is uploaded to S3 alongside `litellm-config.yaml` by `deploy.sh`, and the ECS task command pulls both files at container boot (see `cfn/04-ecs.yaml`), exporting `PYTHONPATH=/app:${PYTHONPATH}` so LiteLLM can import the module.
+
+**Verification**:
+
+```bash
+# Before the fix — fails:
+curl -X POST https://<CLOUDFRONT_DOMAIN>/v1/messages \
+  -H "Authorization: Bearer <KEY>" -H "anthropic-version: 2023-06-01" \
+  -d '{"model":"claude-sonnet-4-6","max_tokens":100,
+       "messages":[{"role":"user","content":"hi"}],
+       "context_management":{"edits":[{"type":"clear_tool_uses_20250919"}]}}'
+# → 400 Extra inputs are not permitted
+
+# After the fix — succeeds (same request returns 200 with normal Anthropic response).
+```
+
+**When can I remove it?** Once Bedrock adds native support for `context_management` on the Invoke endpoint (track the LiteLLM main branch for upstream Bedrock transform updates). Until then, leave the callback in place.
+</details>
+
 ---
 
 ## Security Recommendations

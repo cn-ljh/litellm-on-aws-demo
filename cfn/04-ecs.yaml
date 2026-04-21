@@ -313,9 +313,11 @@ Resources:
                 import boto3
                 s3 = boto3.client('s3')
                 s3.download_file('${ConfigBucket}', 'litellm-config.yaml', '/app/config.yaml')
-                print('Config downloaded from S3')
+                s3.download_file('${ConfigBucket}', 'bedrock_ctx_stripper.py', '/app/bedrock_ctx_stripper.py')
+                print('Config + callback downloaded from S3')
                 " && \
                 export DATABASE_URL="postgresql://${DBUser}:${!DATABASE_PASSWORD}@${DBHost}:${DBPort}/${DBName}" && \
+                export PYTHONPATH="/app:${!PYTHONPATH}" && \
                 exec litellm --config /app/config.yaml --port 4000 --num_workers 2
               - ConfigBucket: !ImportValue
                   Fn::Sub: "${ProjectName}-ConfigBucketName"

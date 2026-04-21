@@ -86,6 +86,7 @@ general_settings:
   store_model_in_db: true
 
 litellm_settings:
+  callbacks: ["bedrock_ctx_stripper.bedrock_ctx_stripper_instance"]
   num_retries: 3
   request_timeout: 600
   set_verbose: false

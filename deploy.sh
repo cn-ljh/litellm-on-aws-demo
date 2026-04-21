@@ -80,6 +80,9 @@ CONFIG_BUCKET=$(aws cloudformation describe-stacks \
 log "Uploading litellm-config.yaml to s3://${CONFIG_BUCKET}/"
 aws s3 cp "${CONFIG_DIR}/litellm-config.yaml" "s3://${CONFIG_BUCKET}/litellm-config.yaml" --region "$REGION"
 
+log "Uploading custom callback bedrock_ctx_stripper.py to s3://${CONFIG_BUCKET}/"
+aws s3 cp "${CONFIG_DIR}/callbacks/bedrock_ctx_stripper.py" "s3://${CONFIG_BUCKET}/bedrock_ctx_stripper.py" --region "$REGION"
+
 # ========== Step 5: ECS + ALB ==========
 deploy_stack "${PROJECT_NAME}-ecs" "${CFN_DIR}/04-ecs.yaml" \
   "ParameterKey=ProjectName,ParameterValue=${PROJECT_NAME}" \

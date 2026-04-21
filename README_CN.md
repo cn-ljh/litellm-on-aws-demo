@@ -608,6 +608,42 @@ aws cloudfront update-distribution --id <DIST_ID> --if-match "$ETAG" \
 
 **建议**：即使调大超时，客户端也强烈建议使用流式响应（`"stream": true`）。流式每秒都有 chunk 下行，ALB 的 idle 计时器永远不会触发，首 token 体验和 p99 延迟都会明显改善。
 
+### Q: Claude Code / 新版 Anthropic 客户端报 `400 context_management: Extra inputs are not permitted`
+
+**现象**：调用 `POST /v1/messages` 时带上了 `context_management` 字段（Claude Code 2.1.116+ 和部分新版 Anthropic SDK 会自动注入用于上下文压缩），服务端返回：
+
+```
+API Error: 400 {"error":{"message":"{\"message\":\"context_management: Extra inputs are not permitted\"}.
+Received Model Group=claude-sonnet-4-6 ..."}}
+```
+
+**根因**：AWS Bedrock 的 Anthropic Invoke 接口目前（2026-04）不接受 `context_management` 字段。LiteLLM 在 `/v1/messages`（Anthropic 透传）路由上原样转发，Bedrock Pydantic 校验严格拒绝。注意：在 `litellm_settings` / `litellm_params` 里配的 `additional_drop_params: [context_management]` **只对 OpenAI 格式（`/v1/chat/completions`）路由生效，对 `/v1/messages` 不生效**。
+
+**解决方案（已内置于本仓库）**：通过自定义 `CustomLogger` 的 `async_pre_call_hook`，在请求进入 Bedrock 前把 `context_management` 字段剥掉。实现位于 [`config/callbacks/bedrock_ctx_stripper.py`](config/callbacks/bedrock_ctx_stripper.py)，并在 `config/litellm-config.yaml` 里注册：
+
+```yaml
+litellm_settings:
+  callbacks: ["bedrock_ctx_stripper.bedrock_ctx_stripper_instance"]
+```
+
+`deploy.sh` 会把 callback 文件和 `litellm-config.yaml` 一起上传到 S3；容器启动时（见 `cfn/04-ecs.yaml` 的 Command）会同时下载两份文件到 `/app/`，并导出 `PYTHONPATH=/app:${PYTHONPATH}` 让 LiteLLM 能 import 到模块。
+
+**验证**：
+
+```bash
+# 修复前（失败）：
+curl -X POST https://<CLOUDFRONT_DOMAIN>/v1/messages \
+  -H "Authorization: Bearer <KEY>" -H "anthropic-version: 2023-06-01" \
+  -d '{"model":"claude-sonnet-4-6","max_tokens":100,
+       "messages":[{"role":"user","content":"hi"}],
+       "context_management":{"edits":[{"type":"clear_tool_uses_20250919"}]}}'
+# → 400 Extra inputs are not permitted
+
+# 修复后（成功）：同样的请求返回 200 + 正常的 Anthropic response。
+```
+
+**什么时候可以删掉？** 等 Bedrock Invoke 原生支持 `context_management`（关注 LiteLLM main 分支的 Bedrock transformation 更新）。在那之前建议保留此 callback。
+
 ### Q: 部署需要哪些 IAM 权限？
 
 最低权限需要覆盖：
