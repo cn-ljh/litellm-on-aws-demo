@@ -88,7 +88,11 @@ general_settings:
 litellm_settings:
   callbacks: ["bedrock_ctx_stripper.bedrock_ctx_stripper_instance"]
   num_retries: 3
-  request_timeout: 600
+  # 总请求超时（秒）：3 分钟兜底，避免客户端（Claude Code）卡住等 10 分钟
+  request_timeout: 180
+  # 单次上游调用超时（秒）：Bedrock Opus 偶发 p99=90s+ 慢请求，120s 内拿不到就主动断开，
+  # 让 num_retries 快速重试——Bedrock 慢是偶发的，重试大概率命中正常 p50=6s 响应
+  timeout: 120
   set_verbose: false
   drop_params: true
   additional_drop_params:
