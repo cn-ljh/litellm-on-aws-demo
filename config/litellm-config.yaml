@@ -33,7 +33,7 @@ model_list:
   # --- AWS Bedrock (IAM task role, no API key needed) ---
   - model_name: claude-opus-4-7
     litellm_params:
-      model: bedrock/converse/us.anthropic.claude-opus-4-7
+      model: bedrock/us.anthropic.claude-opus-4-7
       aws_region_name: us-east-1
       additional_drop_params:
         - context_management
