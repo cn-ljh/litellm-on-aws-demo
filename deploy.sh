@@ -10,12 +10,21 @@ CONFIG_DIR="$(cd "$(dirname "$0")/config" && pwd)"
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 
 # Auto-detect latest LiteLLM stable release, or use pinned version
+# Note: LiteLLM tag naming changed at 1.84+:
+#   - <= 1.83.x: tags are "v1.83.7-stable" → image "ghcr.io/berriai/litellm:main-v1.83.7-stable"
+#   - >= 1.84.x: tags are "v1.84.0"        → image "ghcr.io/berriai/litellm:v1.84.0"
+# The detection below picks the highest non-prerelease release.
 if [ -z "${LITELLM_VERSION:-}" ]; then
   log "Detecting latest LiteLLM stable release..."
-  LITELLM_VERSION=$(curl -s "https://api.github.com/repos/BerriAI/litellm/releases"     | python3 -c "import sys,json;releases=json.load(sys.stdin);print(next(r['tag_name'] for r in releases if 'stable' in r['tag_name']))" 2>/dev/null     || echo "v1.82.3-stable.patch.2")
+  LITELLM_VERSION=$(curl -s "https://api.github.com/repos/BerriAI/litellm/releases"     | python3 -c "import sys,json;rs=json.load(sys.stdin);print(next(r['tag_name'] for r in rs if not r['prerelease']))" 2>/dev/null     || echo "v1.85.2")
   log "Using LiteLLM ${LITELLM_VERSION}"
 fi
-LITELLM_IMAGE="ghcr.io/berriai/litellm:main-${LITELLM_VERSION}"
+# Image tag derivation: 1.84+ uses bare tag, older uses main- prefix with -stable suffix
+case "$LITELLM_VERSION" in
+  *-stable*) LITELLM_IMAGE="ghcr.io/berriai/litellm:main-${LITELLM_VERSION}" ;;
+  *)         LITELLM_IMAGE="ghcr.io/berriai/litellm:${LITELLM_VERSION}" ;;
+esac
+log "Using image: ${LITELLM_IMAGE}"
 
 
 wait_stack() {

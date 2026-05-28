@@ -518,6 +518,25 @@ done
 
 ## 常见问题
 
+### Q: 升级到 1.84+ 后，ECS task 启动后 child process 反复 die
+
+**根因**：LiteLLM 1.80+ 在 `--num_workers >= 2` 时父进程 fork 出来的 worker 启动后立即崩溃且不输出 stderr，是 [BerriAI/litellm#18457](https://github.com/BerriAI/litellm/issues/18457) 的已知 bug。
+
+**症状**：日志里只有 `INFO: Waiting for child process [N]` 和 `INFO: Child process [N] died` 反复刷，target group health check 失败。
+
+**修复**：本仓库 `cfn/04-ecs.yaml` 启动命令已改为 `--num_workers 1`。如果 fork 别人版本，确保也是 1。0.5 vCPU × 单 worker 在常规负载下完全够用；担心 CPU 瓶颈可以提升 vCPU 到 1 而不是加 worker。
+
+### Q: LiteLLM 镜像 tag 命名变了（1.84+）
+
+**注意 tag 命名规则在 1.84 改了**：
+
+| 版本 | tag 格式 | image 写法 |
+|------|---------|------|
+| ≤ 1.83.x | `v1.83.7-stable` | `ghcr.io/berriai/litellm:main-v1.83.7-stable` |
+| ≥ 1.84.x | `v1.84.0` | `ghcr.io/berriai/litellm:v1.84.0`（**没有 main- 前缀，没有 -stable 后缀**）|
+
+`deploy.sh` 已经做了适配，case 语句根据 tag 是否含 `-stable` 自动决定要不要拼 `main-` 前缀。
+
 ### Q: 通过 UI 创建用户后，Key 报 "model not allowed"（403）
 
 通过 LiteLLM Admin UI 创建用户时，界面没有模型选择框。用户的 `models` 默认值为 `["no-default-models"]`，**会阻止访问所有模型**——即使生成 Key 时选了模型也不行。
