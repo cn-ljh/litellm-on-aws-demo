@@ -486,6 +486,73 @@ aws bedrock list-inference-profiles --region <YOUR_REGION> --type SYSTEM_DEFINED
 
 ---
 
+## MCP Gateway (Tavily + Exa)
+
+LiteLLM Proxy doubles as an **MCP Gateway** that exposes search tools (Tavily, Exa) to all clients via a single endpoint. Clients no longer need their own search API keys.
+
+### Available tools
+
+- `tavily-tavily_search`, `tavily-tavily_extract`, `tavily-tavily_crawl`, `tavily-tavily_map`, `tavily-tavily_research`
+- `exa-web_search_exa`, `exa-web_fetch_exa`
+
+### Client usage
+
+OpenAI Responses API:
+```json
+{
+  "type": "mcp",
+  "server_label": "litellm",
+  "server_url": "litellm_proxy",
+  "require_approval": "never"
+}
+```
+
+Direct MCP protocol (`POST /mcp/` JSON-RPC, `Authorization: Bearer <virtual_key>`).
+
+### Setup (one-time)
+
+1. Update Secrets Manager with real keys:
+   ```bash
+   aws secretsmanager update-secret --secret-id litellm/<TENANT>/tavily \
+     --secret-string '{"api_key":"tvly-xxx"}'
+   aws secretsmanager update-secret --secret-id litellm/<TENANT>/exa \
+     --secret-string '{"api_key":"xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"}'
+   ```
+
+2. Run the sync script (idempotent, writes to LiteLLM DB):
+   ```bash
+   AWS_REGION=us-east-1 LITELLM_PROXY_URL=https://your-domain \
+     ./scripts/sync-mcp-servers.sh
+   ```
+
+### Why DB-based and not yaml-based?
+
+LiteLLM 1.85.2 has a bug where yaml-loaded `mcp_servers` are not picked up by the auth chain — admin/virtual keys see empty `tools/list` even with `allow_all_keys: true`. Going through the admin REST API (`POST /v1/mcp/server`) writes to `LiteLLM_MCPServerTable` and works correctly. See `scripts/sync-mcp-servers.sh` and the `feat(mcp)` commit history for details.
+
+> ⚠️ Known LiteLLM 1.85.2 issues:
+> - `auth_type: bearer_token` does not persist `authentication_token` — use `static_headers: {Authorization: "Bearer <KEY>"}` instead.
+> - `GET /v1/mcp/server` echoes `static_headers` API keys in plaintext — keep your master key tightly controlled.
+
+---
+
+## Blue/Green Deployment
+
+This project runs **two parallel ECS services** sharing the same Aurora DB and ALB:
+
+| Service | Task family | Default route |
+|---|---|---|
+| `litellm-gw-service` (blue) | `litellm-gw-task` | Header `X-Lane: blue` (canary/rollback) |
+| `litellm-gw-service-green` | `litellm-gw-task-green` | Default (production traffic) |
+
+ALB listener rules use HTTP header `X-Lane: blue` to route to blue TG; everything else goes to green TG. This lets you:
+- Roll forward by upgrading green only (CFN stack still manages blue task family).
+- Roll back instantly by sending `X-Lane: blue` from clients (or rewriting at the edge).
+- Compare blue vs green side-by-side with live traffic.
+
+**Operational note**: the CFN `litellm-gw-ecs` stack only manages the blue side (`litellm-gw-task` + `litellm-gw-service` + blue TG). The green family was created manually during the v1.83.7 → v1.85.2 upgrade (2026-05-28); future CFN updates won't touch it. Keep the two families' `image`, `secrets`, and `environment` aligned manually after each version bump.
+
+---
+
 ## Cleanup
 
 ```bash
