@@ -85,6 +85,33 @@ general_settings:
   database_url: os.environ/DATABASE_URL
   store_model_in_db: true
 
+# --- MCP (Model Context Protocol) Servers ---
+# 通过 LiteLLM Proxy 统一暴露给所有客户端使用，由 LiteLLM 转发请求并附带认证 header。
+# 客户端调用方式：在 /v1/responses 或 /v1/chat/completions 的 tools 数组里指定
+#   { "type": "mcp", "server_label": "litellm", "server_url": "litellm_proxy", "require_approval": "never" }
+# 详见 https://docs.litellm.ai/docs/mcp
+#
+# ⚠️ 不要在 yaml 里写明文 API key——所有密钥通过 ECS Secrets 注入到环境变量，
+#    yaml 用 os.environ/XXX 占位符，LiteLLM 启动时递归替换为真实值。
+mcp_servers:
+  # Tavily：实时 Web 搜索（支持 time_range、深度控制）
+  # 远程 endpoint 自动通过 Authorization: Bearer <key> 认证
+  tavily:
+    url: "https://mcp.tavily.com/mcp/"
+    transport: "http"
+    auth_type: "bearer_token"
+    auth_value: os.environ/TAVILY_API_KEY
+    description: "Tavily real-time web search and content extraction"
+
+  # Exa：LLM 优化的 Web 搜索 + 代码搜索 + 企业研究
+  # 远程 endpoint 用自定义 header x-api-key 认证（不是标准 Bearer）
+  exa:
+    url: "https://mcp.exa.ai/mcp"
+    transport: "http"
+    static_headers:
+      x-api-key: os.environ/EXA_API_KEY
+    description: "Exa AI-optimized web search, code search, and company research"
+
 litellm_settings:
   callbacks: ["bedrock_ctx_stripper.bedrock_ctx_stripper_instance"]
   num_retries: 3

@@ -241,6 +241,10 @@ Resources:
                     Fn::Sub: "${ProjectName}-AnthropicSecretArn"
                   - !ImportValue
                     Fn::Sub: "${ProjectName}-GeminiSecretArn"
+                  - !ImportValue
+                    Fn::Sub: "${ProjectName}-TavilySecretArn"
+                  - !ImportValue
+                    Fn::Sub: "${ProjectName}-ExaSecretArn"
 
   ECSTaskRole:
     Type: AWS::IAM::Role
@@ -369,6 +373,16 @@ Resources:
                 - "${SecretArn}:api_key::"
                 - SecretArn: !ImportValue
                     Fn::Sub: "${ProjectName}-GeminiSecretArn"
+            - Name: TAVILY_API_KEY
+              ValueFrom: !Sub
+                - "${SecretArn}:api_key::"
+                - SecretArn: !ImportValue
+                    Fn::Sub: "${ProjectName}-TavilySecretArn"
+            - Name: EXA_API_KEY
+              ValueFrom: !Sub
+                - "${SecretArn}:api_key::"
+                - SecretArn: !ImportValue
+                    Fn::Sub: "${ProjectName}-ExaSecretArn"
           LogConfiguration:
             LogDriver: awslogs
             Options:
