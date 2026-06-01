@@ -102,6 +102,8 @@ mcp_servers:
     auth_type: "bearer_token"
     auth_value: os.environ/TAVILY_API_KEY
     description: "Tavily real-time web search and content extraction"
+    # allow_all_keys=true 让所有 virtual key 默认可访问。如需限制，改用 team / object_permission 授权
+    allow_all_keys: true
 
   # Exa：LLM 优化的 Web 搜索 + 代码搜索 + 企业研究
   # 远程 endpoint 用自定义 header x-api-key 认证（不是标准 Bearer）
@@ -111,6 +113,7 @@ mcp_servers:
     static_headers:
       x-api-key: os.environ/EXA_API_KEY
     description: "Exa AI-optimized web search, code search, and company research"
+    allow_all_keys: true
 
 litellm_settings:
   callbacks: ["bedrock_ctx_stripper.bedrock_ctx_stripper_instance"]
