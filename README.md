@@ -509,6 +509,74 @@ OpenAI Responses API:
 
 Direct MCP protocol (`POST /mcp/` JSON-RPC, `Authorization: Bearer <virtual_key>`).
 
+### Claude Code client integration
+
+Claude Code (CLI ≥ 2.x) can register the LiteLLM MCP Gateway as a remote MCP server, giving it access to all 7 search tools without configuring Tavily/Exa keys locally.
+
+**1. Create a dedicated virtual key on the proxy** (do *not* hand out the master key):
+
+```bash
+curl -X POST https://your-domain/key/generate \
+  -H "Authorization: Bearer <MASTER_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "key_alias": "claude-code-mcp",
+    "models": ["all-proxy-models"],
+    "metadata": {"purpose": "claude-code mcp gateway"}
+  }'
+# → returns "key": "sk-xxxx..."
+```
+
+**2. Register the MCP server in Claude Code** (run on each client machine):
+
+Linux / macOS:
+```bash
+claude mcp add --transport http --scope user litellm-search \
+  https://your-domain/mcp/ \
+  --header "Authorization: Bearer sk-xxxx..."
+```
+
+Windows PowerShell (note backtick line continuation):
+```powershell
+claude mcp add --transport http --scope user litellm-search `
+  https://your-domain/mcp/ `
+  --header "Authorization: Bearer sk-xxxx..."
+```
+
+Verify:
+```bash
+claude mcp list
+# litellm-search ✓ Connected (7 tools)
+```
+
+**3. Disable Claude Code's built-in `WebSearch` tool** so it stops attempting the unreachable Anthropic search endpoint and falls through to `litellm-search`. Edit `~/.claude/settings.json` (Windows: `C:\Users\<you>\.claude\settings.json`) and add `permissions.deny`:
+
+```json
+{
+  "permissions": {
+    "deny": ["WebSearch", "WebFetch"]
+  },
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "sk-xxxx...",
+    "ANTHROPIC_BASE_URL": "https://your-domain"
+  },
+  "model": "claude-opus-4-7"
+}
+```
+
+Restart Claude Code. From then on it will route every web-search/fetch through `tavily-tavily_search` / `exa-web_search_exa` / `tavily-tavily_extract`, instead of burning ~1s on the dead built-in `WebSearch` per call.
+
+**4. Optional: ALB-direct hostname for IP-allowlisted clients**
+
+If your ALB has a security group that whitelists specific source IPs (office/home/static EC2), point the client at the ALB hostname directly (`https://litellm-alb.<your-domain>/mcp/`) to bypass CloudFront. Public clients should still use the CloudFront hostname (`https://litellm.<your-domain>/mcp/`) which is gated by a custom verification header.
+
+**Revoke a key** (if a client machine is decommissioned):
+```bash
+curl -X POST https://your-domain/key/delete \
+  -H "Authorization: Bearer <MASTER_KEY>" \
+  -d '{"keys":["sk-xxxx..."]}'
+```
+
 ### Setup (one-time)
 
 1. Update Secrets Manager with real keys:
