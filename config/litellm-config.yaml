@@ -31,6 +31,22 @@ model_list:
         - context_management
 
   # --- AWS Bedrock (IAM task role, no API key needed) ---
+  - model_name: claude-opus-4-8
+    litellm_params:
+      model: bedrock/us.anthropic.claude-opus-4-8
+      aws_region_name: us-east-1
+      additional_drop_params:
+        - context_management
+    # LiteLLM cost map 暂未收录 4.8，手工注入 context window + 定价（按 Opus 同价占位）
+    model_info:
+      max_input_tokens: 200000
+      max_output_tokens: 32000
+      input_cost_per_token: 0.000015
+      output_cost_per_token: 0.000075
+      supports_function_calling: true
+      supports_vision: true
+      supports_prompt_caching: true
+
   - model_name: claude-opus-4-7
     litellm_params:
       model: bedrock/us.anthropic.claude-opus-4-7
@@ -68,6 +84,25 @@ model_list:
       aws_region_name: us-east-1
       additional_drop_params:
         - context_management
+
+  # Claude Fable 5 (Mythos-class) — 2026-06-10 接入
+  # 关键: aws_region_name 必须是 Fable 服务区(us-east-1)；该区账户数据保留已设 provider_data_share。
+  # 只有 global profile，无 us./eu. 形态；裸 ID 不支持 on-demand。
+  # adaptive thinking 常开不可关；temperature 必须=1.0 或不设。
+  - model_name: claude-fable-5
+    litellm_params:
+      model: bedrock/global.anthropic.claude-fable-5
+      aws_region_name: us-east-1
+      input_cost_per_token: 0.00001                      # $10  / 1M
+      output_cost_per_token: 0.00005                     # $50  / 1M
+      cache_creation_input_token_cost: 0.0000125         # $12.5/ 1M (5m 写)
+      cache_read_input_token_cost: 0.000001              # $1   / 1M (读)
+      cache_creation_input_token_cost_above_1hr: 0.00002 # $20  / 1M (1h 写)
+      additional_drop_params:
+        - context_management
+    model_info:
+      supports_prompt_caching: true
+      max_input_tokens: 1000000                          # Fable 支持 1M 上下文
 
   # --- Google Gemini ---
   - model_name: gemini-2.0-flash
