@@ -1,0 +1,105 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "LiteLLM Gateway - AGA prefix list + ALB SG ingress (us-east-1, same region as ALB)"
+
+# ---------------------------------------------------------------------------
+# Deploy in the SAME region as the ALB (us-east-1).
+# Holds the customer-managed prefix list of AGA GLOBAL edge CIDRs and the ALB
+# security-group ingress rule that references it.
+#
+# AGA has NO AWS-managed prefix list (unlike CloudFront pl-3b927c52), so we
+# maintain our own. With client IP preservation OFF (NAT mode) on the endpoint,
+# the ALB sees AGA edge IPs as the source -> SG locks to this list,
+# never 0.0.0.0/0, never chasing client IPs.
+#
+# WHICH CIDRs: GLOBAL anycast ranges + the ACCELERATOR's home region.
+# The accelerator (cfn/06-global-accelerator.yaml) is created in us-west-2
+# (AGA control plane); its static anycast IPs + NAT forwarding source IPs come
+# from us-west-2's GLOBALACCELERATOR ranges -- NOT the endpoint region.
+# Verified via VPC Flow Log: ALB rejected source 13.248.112.0/24 (us-west-2).
+# So this list = GLOBAL (45) + us-west-2 (2) = 47 CIDRs.
+# Keep fresh with scripts/sync-aga-prefix-list.sh (cron).
+# ---------------------------------------------------------------------------
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: litellm-gw
+  AlbSecurityGroupId:
+    Type: String
+    Description: "Security Group ID attached to the ALB"
+
+Resources:
+  AGAPrefixList:
+    Type: AWS::EC2::PrefixList
+    Properties:
+      PrefixListName: !Sub "${ProjectName}-aga-global"
+      AddressFamily: IPv4
+      MaxEntries: 50
+      Entries:
+        - { Cidr: "1.178.172.0/23" }
+        - { Cidr: "1.179.14.0/23" }
+        - { Cidr: "1.179.60.0/23" }
+        - { Cidr: "13.248.112.0/24" }
+        - { Cidr: "13.248.128.0/17" }
+        - { Cidr: "15.197.0.0/23" }
+        - { Cidr: "15.197.12.0/22" }
+        - { Cidr: "15.197.128.0/17" }
+        - { Cidr: "15.197.16.0/23" }
+        - { Cidr: "15.197.18.0/23" }
+        - { Cidr: "15.197.2.0/24" }
+        - { Cidr: "15.197.20.0/22" }
+        - { Cidr: "15.197.24.0/22" }
+        - { Cidr: "15.197.28.0/23" }
+        - { Cidr: "15.197.3.0/24" }
+        - { Cidr: "15.197.30.0/23" }
+        - { Cidr: "15.197.32.0/23" }
+        - { Cidr: "15.197.34.0/23" }
+        - { Cidr: "15.197.36.0/22" }
+        - { Cidr: "15.197.4.0/22" }
+        - { Cidr: "15.197.64.0/19" }
+        - { Cidr: "15.197.8.0/22" }
+        - { Cidr: "166.117.0.0/16" }
+        - { Cidr: "192.157.72.0/23" }
+        - { Cidr: "23.238.128.0/17" }
+        - { Cidr: "24.110.0.0/21" }
+        - { Cidr: "3.2.4.0/23" }
+        - { Cidr: "3.2.55.0/24" }
+        - { Cidr: "3.2.8.0/21" }
+        - { Cidr: "3.3.0.0/23" }
+        - { Cidr: "3.3.6.0/23" }
+        - { Cidr: "3.3.8.0/21" }
+        - { Cidr: "3.33.128.0/17" }
+        - { Cidr: "35.71.128.0/17" }
+        - { Cidr: "52.223.0.0/17" }
+        - { Cidr: "54.230.192.0/21" }
+        - { Cidr: "63.246.120.0/21" }
+        - { Cidr: "66.182.96.0/20" }
+        - { Cidr: "75.2.0.0/17" }
+        - { Cidr: "76.223.0.0/17" }
+        - { Cidr: "76.223.169.0/24" }
+        - { Cidr: "93.77.128.0/19" }
+        - { Cidr: "99.77.188.0/24" }
+        - { Cidr: "99.77.189.0/24" }
+        - { Cidr: "99.77.190.0/24" }
+        - { Cidr: "99.82.156.0/22" }
+        - { Cidr: "99.83.128.0/17" }
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-aga-global"
+
+  ALBIngressFromAGA:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref AlbSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      SourcePrefixListId: !Ref AGAPrefixList
+      Description: "AGA GLOBAL edge IPs to ALB 443 (client IP preservation OFF)"
+
+Outputs:
+  AGAPrefixListId:
+    Value: !Ref AGAPrefixList
+    Description: "Customer-managed prefix list ID (feed scripts/sync-aga-prefix-list.sh)"
+    Export:
+      Name: !Sub "${ProjectName}-AGAPrefixListId"

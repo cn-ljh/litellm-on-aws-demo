@@ -1,0 +1,70 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "LiteLLM Gateway - AWS Global Accelerator (MUST deploy in us-west-2; AGA control plane is Oregon-only)"
+
+# ---------------------------------------------------------------------------
+# Deploy this stack in us-west-2 (AGA control plane region). The EndpointGroup
+# points back at the ALB in its own region via EndpointGroupRegion.
+#
+# Pairs with cfn/06-aga-sg.yaml (deployed in the ALB region) which holds the
+# prefix list + SG ingress. TLS terminates at the ALB (443 HTTPS + ACM cert),
+# AGA is L4 TCP/443 passthrough -> no 120s L7 origin timeout (CloudFront's cap).
+# ---------------------------------------------------------------------------
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: litellm-gw
+  AlbArn:
+    Type: String
+    Description: "ARN of the existing internet-facing ALB endpoint (in its home region)"
+  AlbRegion:
+    Type: String
+    Default: us-east-1
+    Description: "Region where the ALB lives (EndpointGroupRegion)"
+
+Resources:
+  Accelerator:
+    Type: AWS::GlobalAccelerator::Accelerator
+    Properties:
+      Name: !Sub "${ProjectName}-aga"
+      Enabled: true
+      IpAddressType: IPV4
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-aga"
+
+  Listener:
+    Type: AWS::GlobalAccelerator::Listener
+    Properties:
+      AcceleratorArn: !Ref Accelerator
+      Protocol: TCP
+      ClientAffinity: SOURCE_IP
+      PortRanges:
+        - FromPort: 443
+          ToPort: 443
+
+  EndpointGroup:
+    Type: AWS::GlobalAccelerator::EndpointGroup
+    Properties:
+      ListenerArn: !Ref Listener
+      EndpointGroupRegion: !Ref AlbRegion
+      HealthCheckProtocol: HTTPS
+      HealthCheckPath: /health/liveliness
+      HealthCheckPort: 443
+      EndpointConfigurations:
+        - EndpointId: !Ref AlbArn
+          Weight: 128
+          # NAT mode: ALB sees AGA GLOBAL edge IPs, not real client IP.
+          # This is what lets the SG lock to the AGA prefix list.
+          ClientIPPreservationEnabled: false
+
+Outputs:
+  AcceleratorArn:
+    Value: !Ref Accelerator
+    Export:
+      Name: !Sub "${ProjectName}-AcceleratorArn"
+  AcceleratorDnsName:
+    Value: !GetAtt Accelerator.DnsName
+    Description: "AGA DNS name; resolves to the 2 static anycast IPs"
+    Export:
+      Name: !Sub "${ProjectName}-AcceleratorDnsName"
