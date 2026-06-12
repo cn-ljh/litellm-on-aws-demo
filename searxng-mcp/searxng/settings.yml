@@ -1,0 +1,36 @@
+# SearXNG settings for litellm-gw internal web-search service.
+# Internal-only instance (private subnets, SG ingress limited to LiteLLM SG),
+# so the bot limiter is disabled and no public-instance hardening is needed.
+use_default_settings: true
+
+general:
+  debug: false
+  instance_name: "searxng-litellm"
+  enable_metrics: false
+
+server:
+  port: 8080
+  bind_address: "0.0.0.0"
+  # Overridden at runtime by SEARXNG_SECRET (injected from Secrets Manager).
+  secret_key: "changeme-overridden-by-env"
+  limiter: false
+  public_instance: false
+  image_proxy: false
+  method: "GET"
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  # json is what the MCP server consumes via /search?format=json
+  formats:
+    - html
+    - json
+
+outgoing:
+  request_timeout: 8.0
+  max_request_timeout: 15.0
+  pool_connections: 100
+  pool_maxsize: 20
+
+ui:
+  static_use_hash: true

@@ -1,0 +1,217 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "LiteLLM Gateway - SearXNG MCP web-search service (standalone ECS Fargate service + Cloud Map private DNS)"
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: litellm-gw
+  TenantName:
+    Type: String
+    Default: default
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: "Private subnets shared with the LiteLLM service"
+  ClusterName:
+    Type: String
+    Default: litellm-gw-cluster
+  LiteLLMSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: "SG of the LiteLLM ECS tasks - the only allowed MCP client"
+  SearxngImage:
+    Type: String
+    Description: "ECR image URI for the SearXNG container"
+  McpImage:
+    Type: String
+    Description: "ECR image URI for the MCP server container"
+  McpPort:
+    Type: Number
+    Default: 8000
+  NamespaceName:
+    Type: String
+    Default: litellm-gw.internal
+    Description: "Cloud Map private DNS namespace"
+  DesiredCount:
+    Type: Number
+    Default: 1
+
+Resources:
+  # ----- Secrets -----
+  SearxngSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "litellm/${TenantName}/searxng-secret"
+      Description: "SearXNG server.secret_key (cookie/CSRF signing)"
+      GenerateSecretString:
+        SecretStringTemplate: "{}"
+        GenerateStringKey: "secret"
+        PasswordLength: 48
+        ExcludePunctuation: true
+
+  # ----- Logging -----
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/${ProjectName}-searxng-mcp"
+      RetentionInDays: 30
+
+  # ----- IAM (standalone, least privilege; do NOT touch litellm roles) -----
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-searxng-mcp-execution-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: SearxngSecretAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref SearxngSecret
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-searxng-mcp-task-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+      # No AWS API permissions needed by the containers themselves.
+
+  # ----- Security group -----
+  # RED LINE: no 0.0.0.0/0 ingress. Only the LiteLLM task SG may reach the MCP port.
+  # Egress 443 only: SearXNG queries public search engines over HTTPS via NAT;
+  # ECR pull / CloudWatch Logs also ride 443. VPC DNS resolver bypasses SG rules.
+  ServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "searxng-mcp tasks: MCP ingress from LiteLLM SG only, HTTPS egress"
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref McpPort
+          ToPort: !Ref McpPort
+          SourceSecurityGroupId: !Ref LiteLLMSecurityGroupId
+          Description: "MCP HTTP from LiteLLM tasks"
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: "HTTPS to public search engines / ECR / CloudWatch via NAT"
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # ----- Cloud Map private DNS -----
+  PrivateNamespace:
+    Type: AWS::ServiceDiscovery::PrivateDnsNamespace
+    Properties:
+      Name: !Ref NamespaceName
+      Vpc: !Ref VpcId
+      Description: "Private DNS for litellm-gw internal services"
+
+  DiscoveryService:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: searxng-mcp
+      NamespaceId: !Ref PrivateNamespace
+      Description: "SearXNG MCP web-search service"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+        RoutingPolicy: MULTIVALUE
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  # ----- Task definition: searxng + mcp server over localhost -----
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${ProjectName}-searxng-mcp"
+      Cpu: "512"
+      Memory: "2048"
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      RuntimePlatform:
+        CpuArchitecture: ARM64
+        OperatingSystemFamily: LINUX
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: searxng
+          Image: !Ref SearxngImage
+          Essential: true
+          PortMappings:
+            - ContainerPort: 8080
+              Protocol: tcp
+          Secrets:
+            - Name: SEARXNG_SECRET
+              ValueFrom: !Sub "${SearxngSecret}:secret::"
+          Environment:
+            - Name: SEARXNG_BASE_URL
+              Value: !Sub "http://searxng-mcp.${NamespaceName}:8080/"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: searxng
+        - Name: mcp
+          Image: !Ref McpImage
+          Essential: true
+          PortMappings:
+            - ContainerPort: !Ref McpPort
+              Protocol: tcp
+          Environment:
+            - Name: SEARXNG_URL
+              Value: "http://localhost:8080"
+            - Name: MCP_PORT
+              Value: !Ref McpPort
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: mcp
+
+  # ----- Service -----
+  Service:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: searxng-mcp
+      Cluster: !Ref ClusterName
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      TaskDefinition: !Ref TaskDefinition
+      EnableExecuteCommand: true
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Ref PrivateSubnetIds
+          SecurityGroups:
+            - !Ref ServiceSecurityGroup
+      ServiceRegistries:
+        - RegistryArn: !GetAtt DiscoveryService.Arn
+
+Outputs:
+  McpInternalUrl:
+    Description: "MCP endpoint URL reachable from the LiteLLM tasks"
+    Value: !Sub "http://searxng-mcp.${NamespaceName}:${McpPort}/mcp"
+  ServiceSecurityGroupId:
+    Value: !Ref ServiceSecurityGroup
+  NamespaceId:
+    Value: !Ref PrivateNamespace

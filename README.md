@@ -486,14 +486,15 @@ aws bedrock list-inference-profiles --region <YOUR_REGION> --type SYSTEM_DEFINED
 
 ---
 
-## MCP Gateway (Tavily + Exa)
+## MCP Gateway (Tavily + Exa + SearXNG)
 
-LiteLLM Proxy doubles as an **MCP Gateway** that exposes search tools (Tavily, Exa) to all clients via a single endpoint. Clients no longer need their own search API keys.
+LiteLLM Proxy doubles as an **MCP Gateway** that exposes search tools (Tavily, Exa, self-hosted SearXNG) to all clients via a single endpoint. Clients no longer need their own search API keys.
 
 ### Available tools
 
 - `tavily-tavily_search`, `tavily-tavily_extract`, `tavily-tavily_crawl`, `tavily-tavily_map`, `tavily-tavily_research`
 - `exa-web_search_exa`, `exa-web_fetch_exa`
+- `searxng-web_search` (self-hosted, no API key / no quota)
 
 ### Client usage
 
@@ -600,6 +601,54 @@ LiteLLM 1.85.2 has a bug where yaml-loaded `mcp_servers` are not picked up by th
 > ⚠️ Known LiteLLM 1.85.2 issues:
 > - `auth_type: bearer_token` does not persist `authentication_token` — use `static_headers: {Authorization: "Bearer <KEY>"}` instead.
 > - `GET /v1/mcp/server` echoes `static_headers` API keys in plaintext — keep your master key tightly controlled.
+
+### SearXNG: self-hosted web search (no API key)
+
+`searxng-web_search` is backed by a **self-hosted SearXNG metasearch instance** running as a standalone ECS Fargate service in the same cluster (`searxng-mcp`), so web search keeps working with zero external API cost/quota.
+
+**Architecture** (`cfn/07-searxng-mcp.yaml` + `searxng-mcp/`):
+
+```
+LiteLLM tasks ──(Cloud Map private DNS: searxng-mcp.litellm-gw.internal:8000/mcp)──▶
+  searxng-mcp task (Fargate, private subnets, no public IP)
+    ├── mcp container   : Python FastMCP, streamable-HTTP, stateless (any replica works)
+    └── searxng container: searxng/searxng with formats:[html,json], limiter off
+        └── localhost:8080 inside the task; queries public engines via NAT
+```
+
+- **One task, two containers** — the MCP server calls SearXNG over `localhost:8080`; only port 8000 (MCP) is exposed outside the task.
+- **Service discovery**: Cloud Map private DNS namespace `litellm-gw.internal` (A records, TTL 10s). LiteLLM is *not* modified — it just resolves the internal hostname. No ALB involved, traffic never leaves the VPC.
+- **Security group** `searxng-mcp` (least privilege, no `0.0.0.0/0` ingress):
+  - ingress: tcp/8000 from the LiteLLM task SG only
+  - egress: tcp/443 only (search engines via NAT, ECR pull, CloudWatch Logs)
+- **No auth on the MCP endpoint by design**: the SG is the auth boundary (only LiteLLM tasks can connect). LiteLLM-side virtual-key auth still applies to clients.
+- **Secrets**: `litellm/<TENANT>/searxng-secret` (auto-generated `server.secret_key`); no search API keys needed.
+
+**Deploy / update:**
+
+```bash
+# 1. Build & push images (ARM64)
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com
+docker build -t <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/litellm-gw/searxng:v1 searxng-mcp/searxng/
+docker build -t <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/litellm-gw/searxng-mcp:v1 searxng-mcp/server/
+docker push <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/litellm-gw/searxng:v1
+docker push <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/litellm-gw/searxng-mcp:v1
+
+# 2. Deploy the stack
+aws cloudformation create-stack --stack-name litellm-gw-searxng-mcp \
+  --template-body file://cfn/07-searxng-mcp.yaml \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --parameters ParameterKey=VpcId,ParameterValue=<VPC> \
+    "ParameterKey=PrivateSubnetIds,ParameterValue='<SUBNET1>,<SUBNET2>'" \
+    ParameterKey=LiteLLMSecurityGroupId,ParameterValue=<LITELLM_SG> \
+    ParameterKey=SearxngImage,ParameterValue=<ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/litellm-gw/searxng:v1 \
+    ParameterKey=McpImage,ParameterValue=<ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/litellm-gw/searxng-mcp:v1
+
+# 3. Register to LiteLLM DB (idempotent)
+LITELLM_PROXY_URL=https://your-domain ./scripts/sync-searxng-mcp.sh
+```
+
+> Note: the SearXNG container reads `/etc/searxng/settings.yml` baked into the image (JSON output format must be explicitly enabled — the stock image only serves HTML). The MCP server runs `stateless_http=true` so LiteLLM's per-request MCP client needs no session affinity.
 
 ---
 
