@@ -51,7 +51,7 @@ Bedrock 模型默认**未开通**，需要在控制台手动申请：
 1. 登录 [AWS 控制台](https://console.aws.amazon.com/bedrock/home#/modelaccess)
 2. 选择部署目标区域（如 `us-east-1`）
 3. 点击 **Manage model access** → 勾选以下模型 → **Save changes**
-   - ✅ Anthropic Claude Opus 4.6
+   - ✅ Anthropic Claude Opus 4.8
    - ✅ Anthropic Claude Sonnet 4.6
    - ✅ Anthropic Claude Haiku 4.5
 4. 等待状态变为 **Access granted**（通常几分钟内）
@@ -239,7 +239,7 @@ curl https://<YOUR_CLOUDFRONT_DOMAIN>/chat/completions \
 
 | 调用名称 | 模型 ID | 定位 |
 |----------|---------|------|
-| `claude-opus-4-6` | `us.anthropic.claude-opus-4-6-v1` | 最强能力，复杂推理 |
+| `claude-opus-4-8` | `us.anthropic.claude-opus-4-8` | 最强能力，复杂推理 |
 | `claude-sonnet-4-6` | `us.anthropic.claude-sonnet-4-6` | **性价比最优，推荐** |
 | `claude-haiku-4-5` | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | 最快最便宜 |
 
@@ -317,7 +317,7 @@ export ANTHROPIC_AUTH_TOKEN="sk-xxx"                          # LiteLLM Virtual 
 export ANTHROPIC_BASE_URL="https://<YOUR_CLOUDFRONT_DOMAIN>"  # 网关地址
 export ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-4-6"
 export ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-haiku-4-5"
-export ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-4-6"
+export ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-4-8"
 ```
 
 > 添加到 `~/.bashrc` 或 `~/.zshrc` 中可持久化。
@@ -334,7 +334,7 @@ export ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-4-6"
     "ANTHROPIC_BASE_URL": "https://<YOUR_CLOUDFRONT_DOMAIN>",
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-4-6",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-6"
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-8"
   }
 }
 ```
@@ -387,7 +387,7 @@ curl -s https://<YOUR_CLOUDFRONT_DOMAIN>/team/new \
   -d '{
     "team_alias": "platform-team",
     "max_budget": 500.0,
-    "models": ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"]
+    "models": ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"]
   }' | python3 -m json.tool
 
 # 为团队成员创建 Key（使用上面返回的 team_id）
@@ -565,7 +565,7 @@ curl https://<YOUR_CLOUDFRONT_DOMAIN>/user/update \
 curl https://<YOUR_CLOUDFRONT_DOMAIN>/team/new \
   -H "Authorization: Bearer $MASTER_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"team_alias": "dev-team", "models": ["claude-sonnet-4-6", "claude-haiku-4-5", "claude-opus-4-6"]}'
+  -d '{"team_alias": "dev-team", "models": ["claude-sonnet-4-6", "claude-haiku-4-5", "claude-opus-4-8"]}'
 ```
 
 > 这是 LiteLLM UI 的已知限制——创建用户界面没有提供模型选择器。

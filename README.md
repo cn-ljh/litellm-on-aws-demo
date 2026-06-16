@@ -150,7 +150,7 @@ curl https://<YOUR_CLOUDFRONT_DOMAIN>/chat/completions \
 
 | Model Name | Provider | Model ID | Notes |
 |-----------|----------|----------|-------|
-| `claude-opus-4-6` | AWS Bedrock | `us.anthropic.claude-opus-4-6-v1` | Most capable |
+| `claude-opus-4-8` | AWS Bedrock | `us.anthropic.claude-opus-4-8` | Most capable |
 | `claude-sonnet-4-6` | AWS Bedrock | `us.anthropic.claude-sonnet-4-6` | **Best value** |
 | `claude-haiku-4-5` | AWS Bedrock | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | Fastest & cheapest |
 | `gpt-4o` | OpenAI | `openai/gpt-4o` | Requires API key |
@@ -200,7 +200,7 @@ Bedrock models are **not enabled by default**. You must request access before de
 
 1. Go to [Bedrock Model Access](https://console.aws.amazon.com/bedrock/home#/modelaccess) in your target region
 2. Click **Manage model access** → enable:
-   - ✅ Anthropic Claude Opus 4.6
+   - ✅ Anthropic Claude Opus 4.8
    - ✅ Anthropic Claude Sonnet 4.6
    - ✅ Anthropic Claude Haiku 4.5
 3. Wait for **Access granted** status (usually a few minutes)
@@ -289,7 +289,7 @@ export ANTHROPIC_AUTH_TOKEN="sk-xxx"                          # Your LiteLLM Vir
 export ANTHROPIC_BASE_URL="https://<YOUR_CLOUDFRONT_DOMAIN>"  # Your gateway endpoint
 export ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-4-6"
 export ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-haiku-4-5"
-export ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-4-6"
+export ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-4-8"
 ```
 
 > Add to `~/.bashrc` or `~/.zshrc` to persist across sessions.
@@ -306,7 +306,7 @@ export ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-4-6"
     "ANTHROPIC_BASE_URL": "https://<YOUR_CLOUDFRONT_DOMAIN>",
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-4-6",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-6"
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-8"
   }
 }
 ```
@@ -340,7 +340,7 @@ curl -s https://<YOUR_CLOUDFRONT_DOMAIN>/key/generate \
   -H "Content-Type: application/json" \
   -d '{
     "key_alias": "limited-key",
-    "models": ["claude-haiku-4-5", "claude-sonnet-4-6"],
+    "models": ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-8"],
     "max_budget": 10.0,
     "duration": "7d",
     "tpm_limit": 100000,
@@ -358,7 +358,7 @@ curl -s https://<YOUR_CLOUDFRONT_DOMAIN>/team/new \
   -d '{
     "team_alias": "platform-team",
     "max_budget": 500.0,
-    "models": ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"]
+    "models": ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"]
   }' | python3 -m json.tool
 
 # Create key for team member (use team_id from above response)
@@ -561,15 +561,11 @@ claude mcp list
     "ANTHROPIC_AUTH_TOKEN": "sk-xxxx...",
     "ANTHROPIC_BASE_URL": "https://your-domain"
   },
-  "model": "claude-opus-4-7"
+  "model": "claude-opus-4-8"
 }
 ```
 
 Restart Claude Code. From then on it will route every web-search/fetch through `tavily-tavily_search` / `exa-web_search_exa` / `tavily-tavily_extract`, instead of burning ~1s on the dead built-in `WebSearch` per call.
-
-**4. Optional: ALB-direct hostname for IP-allowlisted clients**
-
-If your ALB has a security group that whitelists specific source IPs (office/home/static EC2), point the client at the ALB hostname directly (`https://litellm-alb.<your-domain>/mcp/`) to bypass CloudFront. Public clients should still use the CloudFront hostname (`https://litellm.<your-domain>/mcp/`) which is gated by a custom verification header.
 
 **Revoke a key** (if a client machine is decommissioned):
 ```bash
@@ -627,46 +623,35 @@ LiteLLM tasks ──(Cloud Map private DNS: searxng-mcp.litellm-gw.internal:8000
 **Deploy / update:**
 
 ```bash
-# 1. Build & push images (ARM64)
+# 1. Create the ECR repositories (one-time; skip if they already exist)
+aws ecr create-repository --repository-name litellm-gw/searxng --region us-east-1
+aws ecr create-repository --repository-name litellm-gw/searxng-mcp --region us-east-1
+
+# 2. Build & push images (ARM64)
 aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com
 docker build -t <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/litellm-gw/searxng:v1 searxng-mcp/searxng/
 docker build -t <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/litellm-gw/searxng-mcp:v1 searxng-mcp/server/
 docker push <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/litellm-gw/searxng:v1
 docker push <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/litellm-gw/searxng-mcp:v1
 
-# 2. Deploy the stack
+# 3. Deploy the stack
+#    The LiteLLM task SG is imported automatically from the ECS stack
+#    (export "<PROJECT_NAME>-ECSSecurityGroup"), so no SG param is needed.
+#    Cluster name and Cloud Map namespace are derived from ProjectName.
 aws cloudformation create-stack --stack-name litellm-gw-searxng-mcp \
   --template-body file://cfn/07-searxng-mcp.yaml \
   --capabilities CAPABILITY_NAMED_IAM \
-  --parameters ParameterKey=VpcId,ParameterValue=<VPC> \
+  --parameters ParameterKey=ProjectName,ParameterValue=litellm-gw \
+    ParameterKey=VpcId,ParameterValue=<VPC> \
     "ParameterKey=PrivateSubnetIds,ParameterValue='<SUBNET1>,<SUBNET2>'" \
-    ParameterKey=LiteLLMSecurityGroupId,ParameterValue=<LITELLM_SG> \
     ParameterKey=SearxngImage,ParameterValue=<ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/litellm-gw/searxng:v1 \
     ParameterKey=McpImage,ParameterValue=<ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/litellm-gw/searxng-mcp:v1
 
-# 3. Register to LiteLLM DB (idempotent)
+# 4. Register to LiteLLM DB (idempotent)
 LITELLM_PROXY_URL=https://your-domain ./scripts/sync-searxng-mcp.sh
 ```
 
 > Note: the SearXNG container reads `/etc/searxng/settings.yml` baked into the image (JSON output format must be explicitly enabled — the stock image only serves HTML). The MCP server runs `stateless_http=true` so LiteLLM's per-request MCP client needs no session affinity.
-
----
-
-## Blue/Green Deployment
-
-This project runs **two parallel ECS services** sharing the same Aurora DB and ALB:
-
-| Service | Task family | Default route |
-|---|---|---|
-| `litellm-gw-service` (blue) | `litellm-gw-task` | Header `X-Lane: blue` (canary/rollback) |
-| `litellm-gw-service-green` | `litellm-gw-task-green` | Default (production traffic) |
-
-ALB listener rules use HTTP header `X-Lane: blue` to route to blue TG; everything else goes to green TG. This lets you:
-- Roll forward by upgrading green only (CFN stack still manages blue task family).
-- Roll back instantly by sending `X-Lane: blue` from clients (or rewriting at the edge).
-- Compare blue vs green side-by-side with live traffic.
-
-**Operational note**: the CFN `litellm-gw-ecs` stack only manages the blue side (`litellm-gw-task` + `litellm-gw-service` + blue TG). The green family was created manually during the v1.83.7 → v1.85.2 upgrade (2026-05-28); future CFN updates won't touch it. Keep the two families' `image`, `secrets`, and `environment` aligned manually after each version bump.
 
 ---
 
@@ -724,11 +709,21 @@ litellm-on-aws/
 │   ├── 02-secrets.yaml          # Secrets Manager
 │   ├── 03-data.yaml             # Aurora, Valkey, S3
 │   ├── 04-ecs.yaml              # ECS, ALB, IAM
-│   └── 05-cloudfront.yaml       # CloudFront
+│   ├── 05-cloudfront.yaml       # CloudFront
+│   └── 07-searxng-mcp.yaml      # SearXNG MCP web-search service (optional)
 ├── config/
-│   └── litellm-config.yaml      # Model routing config
+│   ├── litellm-config.yaml      # Model routing config
+│   └── callbacks/
+│       └── bedrock_ctx_stripper.py  # Strips context_management for Bedrock
+├── searxng-mcp/                 # SearXNG + MCP server container sources
+│   ├── searxng/
+│   └── server/
+├── scripts/
+│   ├── sync-mcp-servers.sh      # Register Tavily/Exa MCP servers
+│   └── sync-searxng-mcp.sh      # Register SearXNG MCP server
 ├── deploy.sh                    # Deployment script
-└── README.md
+├── README.md                    # English
+└── README_CN.md                 # 中文
 ```
 
 ---
@@ -766,7 +761,7 @@ Create a Team with allowed models, then assign users to that Team. Team-level mo
 curl https://<YOUR_CLOUDFRONT_DOMAIN>/team/new \
   -H "Authorization: Bearer $MASTER_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"team_alias": "dev-team", "models": ["claude-sonnet-4-6", "claude-haiku-4-5", "claude-opus-4-6"]}'
+  -d '{"team_alias": "dev-team", "models": ["claude-sonnet-4-6", "claude-haiku-4-5", "claude-opus-4-8"]}'
 ```
 
 > This is a known LiteLLM UI limitation — the user creation form does not expose a model selector.

@@ -13,12 +13,6 @@ Parameters:
   PrivateSubnetIds:
     Type: List<AWS::EC2::Subnet::Id>
     Description: "Private subnets shared with the LiteLLM service"
-  ClusterName:
-    Type: String
-    Default: litellm-gw-cluster
-  LiteLLMSecurityGroupId:
-    Type: AWS::EC2::SecurityGroup::Id
-    Description: "SG of the LiteLLM ECS tasks - the only allowed MCP client"
   SearxngImage:
     Type: String
     Description: "ECR image URI for the SearXNG container"
@@ -28,13 +22,15 @@ Parameters:
   McpPort:
     Type: Number
     Default: 8000
-  NamespaceName:
-    Type: String
-    Default: litellm-gw.internal
-    Description: "Cloud Map private DNS namespace"
   DesiredCount:
     Type: Number
     Default: 1
+
+# Notes:
+# - The LiteLLM ECS task security group is imported from the ECS stack
+#   (export "${ProjectName}-ECSSecurityGroup"), so no manual SG param is needed.
+# - The ECS cluster name and Cloud Map namespace are derived from ProjectName
+#   ("${ProjectName}-cluster" / "${ProjectName}.internal") to match the ECS stack.
 
 Resources:
   # ----- Secrets -----
@@ -103,7 +99,8 @@ Resources:
         - IpProtocol: tcp
           FromPort: !Ref McpPort
           ToPort: !Ref McpPort
-          SourceSecurityGroupId: !Ref LiteLLMSecurityGroupId
+          SourceSecurityGroupId: !ImportValue
+            Fn::Sub: "${ProjectName}-ECSSecurityGroup"
           Description: "MCP HTTP from LiteLLM tasks"
       SecurityGroupEgress:
         - IpProtocol: tcp
@@ -119,7 +116,7 @@ Resources:
   PrivateNamespace:
     Type: AWS::ServiceDiscovery::PrivateDnsNamespace
     Properties:
-      Name: !Ref NamespaceName
+      Name: !Sub "${ProjectName}.internal"
       Vpc: !Ref VpcId
       Description: "Private DNS for litellm-gw internal services"
 
@@ -163,7 +160,7 @@ Resources:
               ValueFrom: !Sub "${SearxngSecret}:secret::"
           Environment:
             - Name: SEARXNG_BASE_URL
-              Value: !Sub "http://searxng-mcp.${NamespaceName}:8080/"
+              Value: !Sub "http://searxng-mcp.${ProjectName}.internal:8080/"
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -193,7 +190,7 @@ Resources:
     Type: AWS::ECS::Service
     Properties:
       ServiceName: searxng-mcp
-      Cluster: !Ref ClusterName
+      Cluster: !Sub "${ProjectName}-cluster"
       LaunchType: FARGATE
       DesiredCount: !Ref DesiredCount
       TaskDefinition: !Ref TaskDefinition
@@ -210,7 +207,7 @@ Resources:
 Outputs:
   McpInternalUrl:
     Description: "MCP endpoint URL reachable from the LiteLLM tasks"
-    Value: !Sub "http://searxng-mcp.${NamespaceName}:${McpPort}/mcp"
+    Value: !Sub "http://searxng-mcp.${ProjectName}.internal:${McpPort}/mcp"
   ServiceSecurityGroupId:
     Value: !Ref ServiceSecurityGroup
   NamespaceId:

@@ -11,10 +11,12 @@
 
 set -euo pipefail
 
+PROJECT_NAME="${PROJECT_NAME:-litellm-gw}"
 TENANT_NAME="${TENANT_NAME:-default}"
 REGION="${AWS_REGION:-us-east-1}"
 LITELLM_PROXY_URL="${LITELLM_PROXY_URL:?LITELLM_PROXY_URL is required}"
-SEARXNG_MCP_URL="${SEARXNG_MCP_URL:-http://searxng-mcp.litellm-gw.internal:8000/mcp}"
+# Internal Cloud Map DNS: searxng-mcp.<ProjectName>.internal (see cfn/07-searxng-mcp.yaml)
+SEARXNG_MCP_URL="${SEARXNG_MCP_URL:-http://searxng-mcp.${PROJECT_NAME}.internal:8000/mcp}"
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 

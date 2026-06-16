@@ -45,15 +45,22 @@ deploy_stack() {
 
   log "Deploying stack: ${stack_name}"
   if aws cloudformation describe-stacks --stack-name "$stack_name" --region "$REGION" &>/dev/null; then
-    aws cloudformation update-stack \
+    local update_err
+    if ! update_err=$(aws cloudformation update-stack \
       --stack-name "$stack_name" \
       --template-body "file://${template_file}" \
       --parameters "${params[@]}" \
       --capabilities CAPABILITY_NAMED_IAM \
-      --region "$REGION" 2>/dev/null || {
-        log "No updates needed for ${stack_name}, skipping."
-        return 0
-      }
+      --region "$REGION" 2>&1); then
+        # The only benign failure is "no changes to apply"; anything else is a real error.
+        if echo "$update_err" | grep -q "No updates are to be performed"; then
+          log "No updates needed for ${stack_name}, skipping."
+          return 0
+        fi
+        log "ERROR: update-stack failed for ${stack_name}:"
+        echo "$update_err" >&2
+        return 1
+      fi
   else
     aws cloudformation create-stack \
       --stack-name "$stack_name" \
@@ -97,33 +104,6 @@ deploy_stack "${PROJECT_NAME}-ecs" "${CFN_DIR}/04-ecs.yaml" \
   "ParameterKey=ProjectName,ParameterValue=${PROJECT_NAME}" \
   "ParameterKey=TenantName,ParameterValue=${TENANT_NAME}" \
   "ParameterKey=LiteLLMImage,ParameterValue=${LITELLM_IMAGE}"
-
-# ========== Step 5.1: Verify ALB Listener (self-heal) ==========
-# CloudFormation has a known issue where ALB Listener can be marked CREATE_COMPLETE
-# but actually be missing after stack rebuild/rollback. This check ensures it exists.
-ALB_ARN=$(aws elbv2 describe-load-balancers \
-  --names "${PROJECT_NAME}-alb" --region "$REGION" \
-  --query "LoadBalancers[0].LoadBalancerArn" --output text 2>/dev/null) || true
-
-if [ -n "$ALB_ARN" ] && [ "$ALB_ARN" != "None" ]; then
-  LISTENER_COUNT=$(aws elbv2 describe-listeners \
-    --load-balancer-arn "$ALB_ARN" --region "$REGION" \
-    --query "length(Listeners)" --output text 2>/dev/null)
-  if [ "$LISTENER_COUNT" = "0" ]; then
-    log "WARNING: ALB Listener missing (known CFN drift issue). Recreating..."
-    TG_ARN=$(aws elbv2 describe-target-groups \
-      --names "${PROJECT_NAME}-tg" --region "$REGION" \
-      --query "TargetGroups[0].TargetGroupArn" --output text)
-    aws elbv2 create-listener \
-      --load-balancer-arn "$ALB_ARN" \
-      --protocol HTTP --port 80 \
-      --default-actions "Type=forward,TargetGroupArn=${TG_ARN}" \
-      --region "$REGION" > /dev/null
-    log "ALB Listener recreated successfully."
-  else
-    log "ALB Listener OK."
-  fi
-fi
 
 # ========== Step 6: CloudFront ==========
 deploy_stack "${PROJECT_NAME}-cloudfront" "${CFN_DIR}/05-cloudfront.yaml" \

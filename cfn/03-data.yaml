@@ -19,6 +19,10 @@ Parameters:
     Type: Number
     Default: 4
     Description: "Aurora Serverless v2 maximum ACU (0.5 - 256)"
+  AuroraEngineVersion:
+    Type: String
+    Default: "16.6"
+    Description: "Aurora PostgreSQL engine version. Verify availability in your region via: aws rds describe-db-engine-versions --engine aurora-postgresql"
 
 Resources:
   # --- Security Groups ---
@@ -62,7 +66,7 @@ Resources:
     Properties:
       DBClusterIdentifier: !Sub "${ProjectName}-aurora-cluster"
       Engine: aurora-postgresql
-      EngineVersion: "16.6"
+      EngineVersion: !Ref AuroraEngineVersion
       DatabaseName: !Ref DBName
       MasterUsername: !Sub "{{resolve:secretsmanager:litellm/${TenantName}/db-password:SecretString:username}}"
       MasterUserPassword: !Sub "{{resolve:secretsmanager:litellm/${TenantName}/db-password:SecretString:password}}"

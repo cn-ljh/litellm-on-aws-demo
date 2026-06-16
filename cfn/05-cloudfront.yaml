@@ -31,13 +31,6 @@ Resources:
               # Raised from 30s -> 60s so the TCP/TLS connection to the ALB
               # is reused across back-to-back long LLM calls.
               OriginKeepaliveTimeout: 60
-            OriginCustomHeaders:
-              - HeaderName: X-CloudFront-Verify
-                HeaderValue: !Select
-                  - 2
-                  - !Split
-                    - "/"
-                    - !Ref AWS::StackId
         DefaultCacheBehavior:
           TargetOriginId: ALBOrigin
           ViewerProtocolPolicy: redirect-to-https
@@ -72,12 +65,3 @@ Outputs:
     Description: "CloudFront distribution ID (for cache invalidation)"
     Export:
       Name: !Sub "${ProjectName}-CloudFrontDistributionId"
-  CloudFrontVerifyHeader:
-    Value: !Select
-      - 2
-      - !Split
-        - "/"
-        - !Ref AWS::StackId
-    Description: "X-CloudFront-Verify header value (use to restrict ALB access)"
-    Export:
-      Name: !Sub "${ProjectName}-CloudFrontVerifyHeader"

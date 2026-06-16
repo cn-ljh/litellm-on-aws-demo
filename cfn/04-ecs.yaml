@@ -483,3 +483,8 @@ Outputs:
     Value: !GetAtt ECSService.Name
     Export:
       Name: !Sub "${ProjectName}-ECSServiceName"
+  ECSSecurityGroupId:
+    Value: !Ref ECSSecurityGroup
+    Description: "Security group of the LiteLLM ECS tasks (consumed by searxng-mcp stack)"
+    Export:
+      Name: !Sub "${ProjectName}-ECSSecurityGroup"
