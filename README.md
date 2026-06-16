@@ -64,7 +64,7 @@ Deploy [LiteLLM Proxy](https://github.com/BerriAI/litellm) on AWS as a unified, 
 |-----------|--------------|-----------|
 | Database | RDS PostgreSQL (db.m7g.large, fixed) | Aurora Serverless v2 (0.5–4 ACU, auto-scaling) |
 | Scaling | Manual instance resize | Automatic based on load |
-| HA | Multi-AZ standby (idle) | 2 instances (writer + reader) with failover |
+| HA | Multi-AZ standby (idle) | 2 instances (writer + reader) with automatic failover. The reader is a warm standby for AZ/instance failure (auto-promoted on failover), not a read-traffic offload — LiteLLM connects to the writer endpoint only. Drop `AuroraInstance2` for a cheaper non-HA setup. |
 | Cost (DB) | ~$200/month always-on | Pay per ACU-hour, ~$43/month at idle |
 
 ---
