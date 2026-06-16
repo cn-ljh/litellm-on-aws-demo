@@ -5,7 +5,7 @@
 # LiteLLM 通过 Cloud Map 私有 DNS 直连，无需 API key（SG 限制只有 LiteLLM 任务能访问）。
 #
 # 用法：
-#   LITELLM_PROXY_URL=https://litellm.lijinhong.cn ./scripts/sync-searxng-mcp.sh
+#   LITELLM_PROXY_URL=https://litellm.example.com ./scripts/sync-searxng-mcp.sh
 #
 # 幂等：重名（server_name=searxng）则先 DELETE 再 CREATE。
 

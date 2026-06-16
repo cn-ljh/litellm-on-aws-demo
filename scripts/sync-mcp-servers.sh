@@ -13,7 +13,7 @@
 #
 # 用法：
 #   PROJECT_NAME=litellm-gw TENANT_NAME=default \
-#   LITELLM_PROXY_URL=https://litellm.lijinhong.cn \
+#   LITELLM_PROXY_URL=https://litellm.example.com \
 #   ./scripts/sync-mcp-servers.sh
 #
 # 幂等：会先 GET 现有 server，重名（server_name=tavily / exa）则先 DELETE 再 CREATE。
@@ -23,7 +23,7 @@ set -euo pipefail
 PROJECT_NAME="${PROJECT_NAME:-litellm-gw}"
 TENANT_NAME="${TENANT_NAME:-default}"
 REGION="${AWS_REGION:-us-east-1}"
-LITELLM_PROXY_URL="${LITELLM_PROXY_URL:?LITELLM_PROXY_URL is required, e.g. https://litellm.lijinhong.cn}"
+LITELLM_PROXY_URL="${LITELLM_PROXY_URL:?LITELLM_PROXY_URL is required, e.g. https://litellm.example.com}"
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 
