@@ -171,7 +171,27 @@ if [ "$DEPLOY_SEARXNG" = "1" ]; then
   aws ecr get-login-password --region "$REGION" \
     | docker login --username AWS --password-stdin "$ECR_BASE"
 
-  # Fargate tasks here run ARM64 (see cfn/07 RuntimePlatform); build accordingly.
+  # --- buildx + cross-arch prerequisites ---
+  # The Fargate tasks run ARM64 (see cfn/07 RuntimePlatform). To build+push ARM64
+  # images reliably from ANY host we need:
+  #   1) a docker-container buildx builder (the default "docker" driver cannot --push)
+  #   2) QEMU/binfmt emulation when the build host is not already arm64 (the MCP
+  #      image runs `pip install`, which must execute under arm64).
+  HOST_ARCH=$(uname -m)
+  if [ "$HOST_ARCH" != "aarch64" ] && [ "$HOST_ARCH" != "arm64" ]; then
+    log "Build host is ${HOST_ARCH} (not arm64); installing QEMU/binfmt for cross-build..."
+    docker run --privileged --rm tonistiigi/binfmt --install arm64 >/dev/null 2>&1 \
+      || log "WARN: binfmt install failed; ARM64 emulation may be unavailable."
+  fi
+  # Ensure a docker-container builder exists and is selected (idempotent).
+  BUILDER_NAME="${PROJECT_NAME}-builder"
+  if ! docker buildx inspect "$BUILDER_NAME" >/dev/null 2>&1; then
+    log "Creating buildx builder ${BUILDER_NAME} (docker-container driver)..."
+    docker buildx create --name "$BUILDER_NAME" --driver docker-container --use --bootstrap >/dev/null
+  else
+    docker buildx use "$BUILDER_NAME"
+  fi
+
   log "Building + pushing SearXNG image: ${SEARXNG_IMAGE}"
   docker buildx build --platform linux/arm64 -t "$SEARXNG_IMAGE" \
     "${SCRIPT_DIR}/searxng-mcp/searxng/" --push
@@ -189,6 +209,41 @@ if [ "$DEPLOY_SEARXNG" = "1" ]; then
   PRIV_SUBNET_2=$(aws cloudformation describe-stacks \
     --stack-name "${PROJECT_NAME}-vpc" --region "$REGION" \
     --query "Stacks[0].Outputs[?OutputKey=='PrivateSubnet2Id'].OutputValue" --output text)
+
+  # Fail fast on empty lookups: describe-stacks returns "" + exit 0 when an output
+  # key is missing, which would otherwise produce a malformed PrivateSubnetIds
+  # (e.g. ",subnet-xxx") that only surfaces at CFN validation time.
+  for _pair in "VPC:${SEARXNG_VPC_ID}" "PrivateSubnet1:${PRIV_SUBNET_1}" "PrivateSubnet2:${PRIV_SUBNET_2}"; do
+    if [ -z "${_pair#*:}" ]; then
+      log "ERROR: could not resolve ${_pair%%:*} from stack ${PROJECT_NAME}-vpc outputs."
+      log "       Ensure the VPC stack deployed successfully before DEPLOY_SEARXNG=1."
+      exit 1
+    fi
+  done
+
+  # Cloud Map namespace conflict pre-check. cfn/07 CREATEs the private DNS
+  # namespace "${PROJECT_NAME}.internal". If a same-named namespace already
+  # exists but is NOT managed by this stack (e.g. leftover from a prior manual
+  # run), the create would fail mid-deploy with an opaque error. Detect it now
+  # and give an actionable message. (Re-running an existing stack is fine - that
+  # is an UPDATE and owns its namespace.)
+  if ! aws cloudformation describe-stacks --stack-name "${PROJECT_NAME}-searxng-mcp" --region "$REGION" &>/dev/null; then
+    NS_DNS="${PROJECT_NAME}.internal"
+    # Distinguish "no match" from "call failed": on an API error (perms/throttle)
+    # we surface it instead of silently degrading to no-check.
+    if ! NS_LIST=$(aws servicediscovery list-namespaces --region "$REGION" \
+         --query "Namespaces[?Name=='${NS_DNS}'].Id" --output text 2>&1); then
+      log "ERROR: servicediscovery list-namespaces failed (cannot run namespace conflict pre-check):"
+      echo "$NS_LIST" >&2
+      exit 1
+    fi
+    if [ -n "$NS_LIST" ] && [ "$NS_LIST" != "None" ]; then
+      log "ERROR: Cloud Map namespace '${NS_DNS}' already exists (${NS_LIST}) but is not"
+      log "       managed by stack ${PROJECT_NAME}-searxng-mcp. Delete the stray namespace"
+      log "       or set a different PROJECT_NAME, then re-run with DEPLOY_SEARXNG=1."
+      exit 1
+    fi
+  fi
 
   deploy_stack "${PROJECT_NAME}-searxng-mcp" "${CFN_DIR}/07-searxng-mcp.yaml" \
     "ParameterKey=ProjectName,ParameterValue=${PROJECT_NAME}" \
