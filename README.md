@@ -227,10 +227,20 @@ Required only if using non-Bedrock providers:
 | `LITELLM_VERSION` | *(auto-detect)* | Pin a specific version, e.g. `v1.82.3-stable.patch.2` |
 | `MinACU` | `0.5` | Aurora minimum capacity (ACU) |
 | `MaxACU` | `4` | Aurora maximum capacity (ACU) |
+| `AURORA_ENGINE_VERSION` | *(template default `16.6`)* | Override Aurora PostgreSQL engine version if `16.6` is unavailable in your region |
+| `DEPLOY_SEARXNG` | `0` | Set `1` to also build/push the SearXNG images, deploy `cfn/07`, and register the `searxng-web_search` MCP (requires Docker) |
+| `SEARXNG_IMAGE_TAG` | `v1` | Image tag for the SearXNG + MCP server images |
+| `SKIP_SEARXNG_SYNC` | `0` | With `DEPLOY_SEARXNG=1`, set `1` to skip the post-deploy MCP registration |
 
 ```bash
 # Deploy with custom parameters
 PROJECT_NAME=my-llm-gw TENANT_NAME=myteam AWS_REGION=us-west-2 ./deploy.sh
+
+# Override Aurora engine version (e.g. region without 16.6)
+AURORA_ENGINE_VERSION=15.5 ./deploy.sh
+
+# One-shot deploy including the self-hosted SearXNG web-search MCP module
+DEPLOY_SEARXNG=1 ./deploy.sh
 ```
 
 > **Tip**: For dev/test use `MinACU=0.5 / MaxACU=2`. For production consider `MinACU=1 / MaxACU=16`.
@@ -244,6 +254,7 @@ PROJECT_NAME=my-llm-gw TENANT_NAME=myteam AWS_REGION=us-west-2 ./deploy.sh
 | 3. Data | ~10-15 min | Aurora Serverless v2, Valkey, S3 |
 | 4. ECS | ~3-5 min | ECS Fargate, ALB, IAM, CloudWatch |
 | 5. CloudFront | ~3-5 min | CloudFront (HTTPS) |
+| 7. SearXNG MCP *(optional, `DEPLOY_SEARXNG=1`)* | ~5-8 min | ECR images, Fargate service, Cloud Map DNS, MCP registration |
 
 ### Configure Provider API Keys (Optional)
 
@@ -621,6 +632,8 @@ LiteLLM tasks ──(Cloud Map private DNS: searxng-mcp.litellm-gw.internal:8000
 - **Secrets**: `litellm/<TENANT>/searxng-secret` (auto-generated `server.secret_key`); no search API keys needed.
 
 **Deploy / update:**
+
+> **One-shot:** `DEPLOY_SEARXNG=1 ./deploy.sh` does all of the steps below automatically — creates the ECR repos, builds & pushes the ARM64 images, deploys `cfn/07` (resolving VpcId/private subnets from the VPC stack), and registers the MCP server against the CloudFront endpoint. The manual steps below are for standalone/iterative updates.
 
 ```bash
 # 1. Create the ECR repositories (one-time; skip if they already exist)

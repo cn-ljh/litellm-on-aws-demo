@@ -158,7 +158,15 @@ chmod +x deploy.sh
 
 ```bash
 PROJECT_NAME=my-llm-gw TENANT_NAME=myteam AWS_REGION=us-west-2 ./deploy.sh
+
+# 覆盖 Aurora 引擎版本（某区域没有默认的 16.6 时）
+AURORA_ENGINE_VERSION=15.5 ./deploy.sh
+
+# 一键部署并集成自建 SearXNG web search MCP 模块（需要 Docker）
+DEPLOY_SEARXNG=1 ./deploy.sh
 ```
+
+可选环境变量：`AURORA_ENGINE_VERSION`（覆盖 Aurora 引擎版本，默认走模板的 `16.6`）、`DEPLOY_SEARXNG=1`（额外构建并部署 SearXNG MCP 模块）、`SEARXNG_IMAGE_TAG`（镜像 tag，默认 `v1`）、`SKIP_SEARXNG_SYNC=1`（跳过部署后的 MCP 注册）。
 
 部署过程分 5 个阶段：
 

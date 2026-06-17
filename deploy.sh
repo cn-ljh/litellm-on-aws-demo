@@ -6,6 +6,19 @@ TENANT_NAME="${TENANT_NAME:-default}"
 REGION="${AWS_REGION:-us-east-1}"
 CFN_DIR="$(cd "$(dirname "$0")/cfn" && pwd)"
 CONFIG_DIR="$(cd "$(dirname "$0")/config" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Aurora engine version override. Defaults to the template default ("16.6") when
+# left empty so existing behaviour is unchanged. Set AURORA_ENGINE_VERSION to
+# pin a version available in your target region, e.g.
+#   AURORA_ENGINE_VERSION=15.5 ./deploy.sh
+AURORA_ENGINE_VERSION="${AURORA_ENGINE_VERSION:-}"
+
+# SearXNG self-hosted web-search MCP (cfn/07). Optional module: builds+pushes the
+# two container images, deploys stack 07, and registers the MCP server. Enable
+# with DEPLOY_SEARXNG=1 (requires Docker + an authenticated LiteLLM endpoint).
+DEPLOY_SEARXNG="${DEPLOY_SEARXNG:-0}"
+SEARXNG_IMAGE_TAG="${SEARXNG_IMAGE_TAG:-v1}"
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 
@@ -30,11 +43,28 @@ log "Using image: ${LITELLM_IMAGE}"
 wait_stack() {
   local stack_name="$1"
   log "Waiting for stack ${stack_name} to complete..."
-  aws cloudformation wait stack-create-complete \
-    --stack-name "$stack_name" --region "$REGION" 2>/dev/null \
-  || aws cloudformation wait stack-update-complete \
-    --stack-name "$stack_name" --region "$REGION" 2>/dev/null
-  log "Stack ${stack_name} completed."
+  # Try create-complete first, then update-complete. If both waiters fail the
+  # stack is in a failed/rollback state - surface the actual status + the last
+  # failure reason instead of dying silently on set -e.
+  if aws cloudformation wait stack-create-complete \
+       --stack-name "$stack_name" --region "$REGION" 2>/dev/null \
+     || aws cloudformation wait stack-update-complete \
+       --stack-name "$stack_name" --region "$REGION" 2>/dev/null; then
+    log "Stack ${stack_name} completed."
+    return 0
+  fi
+
+  local status
+  status=$(aws cloudformation describe-stacks \
+    --stack-name "$stack_name" --region "$REGION" \
+    --query "Stacks[0].StackStatus" --output text 2>/dev/null || echo "UNKNOWN")
+  log "ERROR: stack ${stack_name} did not reach a COMPLETE state (status: ${status})."
+  log "Most recent failure events:"
+  aws cloudformation describe-stack-events \
+    --stack-name "$stack_name" --region "$REGION" \
+    --query "StackEvents[?contains(ResourceStatus, 'FAILED')].[LogicalResourceId,ResourceStatus,ResourceStatusReason]" \
+    --output text 2>/dev/null | head -10 >&2 || true
+  return 1
 }
 
 deploy_stack() {
@@ -82,9 +112,15 @@ deploy_stack "${PROJECT_NAME}-secrets" "${CFN_DIR}/02-secrets.yaml" \
   "ParameterKey=TenantName,ParameterValue=${TENANT_NAME}" \
 
 # ========== Step 3: Data (RDS + Redis + S3) ==========
-deploy_stack "${PROJECT_NAME}-data" "${CFN_DIR}/03-data.yaml" \
-  "ParameterKey=ProjectName,ParameterValue=${PROJECT_NAME}" \
-  "ParameterKey=TenantName,ParameterValue=${TENANT_NAME}" \
+data_params=(
+  "ParameterKey=ProjectName,ParameterValue=${PROJECT_NAME}"
+  "ParameterKey=TenantName,ParameterValue=${TENANT_NAME}"
+)
+if [ -n "$AURORA_ENGINE_VERSION" ]; then
+  log "Overriding Aurora engine version: ${AURORA_ENGINE_VERSION}"
+  data_params+=("ParameterKey=AuroraEngineVersion,ParameterValue=${AURORA_ENGINE_VERSION}")
+fi
+deploy_stack "${PROJECT_NAME}-data" "${CFN_DIR}/03-data.yaml" "${data_params[@]}"
 
 # ========== Step 4: Upload LiteLLM Config to S3 ==========
 CONFIG_BUCKET=$(aws cloudformation describe-stacks \
@@ -108,6 +144,78 @@ deploy_stack "${PROJECT_NAME}-ecs" "${CFN_DIR}/04-ecs.yaml" \
 # ========== Step 6: CloudFront ==========
 deploy_stack "${PROJECT_NAME}-cloudfront" "${CFN_DIR}/05-cloudfront.yaml" \
   "ParameterKey=ProjectName,ParameterValue=${PROJECT_NAME}"
+
+# ========== Step 7: SearXNG MCP web-search (optional) ==========
+# Builds + pushes the two ARM64 container images to ECR, deploys cfn/07, and
+# registers the MCP server in LiteLLM. Gated behind DEPLOY_SEARXNG=1 because it
+# requires Docker. Defaults off so the core gateway deploy stays Docker-free.
+if [ "$DEPLOY_SEARXNG" = "1" ]; then
+  log "========================================="
+  log " Step 7: SearXNG MCP web-search module"
+  log "========================================="
+
+  ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text --region "$REGION")
+  ECR_BASE="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
+  SEARXNG_REPO="${PROJECT_NAME}/searxng"
+  MCP_REPO="${PROJECT_NAME}/searxng-mcp"
+  SEARXNG_IMAGE="${ECR_BASE}/${SEARXNG_REPO}:${SEARXNG_IMAGE_TAG}"
+  MCP_IMAGE="${ECR_BASE}/${MCP_REPO}:${SEARXNG_IMAGE_TAG}"
+
+  log "Ensuring ECR repositories exist..."
+  aws ecr describe-repositories --repository-names "$SEARXNG_REPO" --region "$REGION" &>/dev/null \
+    || aws ecr create-repository --repository-name "$SEARXNG_REPO" --region "$REGION" >/dev/null
+  aws ecr describe-repositories --repository-names "$MCP_REPO" --region "$REGION" &>/dev/null \
+    || aws ecr create-repository --repository-name "$MCP_REPO" --region "$REGION" >/dev/null
+
+  log "Logging in to ECR (${ECR_BASE})..."
+  aws ecr get-login-password --region "$REGION" \
+    | docker login --username AWS --password-stdin "$ECR_BASE"
+
+  # Fargate tasks here run ARM64 (see cfn/07 RuntimePlatform); build accordingly.
+  log "Building + pushing SearXNG image: ${SEARXNG_IMAGE}"
+  docker buildx build --platform linux/arm64 -t "$SEARXNG_IMAGE" \
+    "${SCRIPT_DIR}/searxng-mcp/searxng/" --push
+  log "Building + pushing MCP server image: ${MCP_IMAGE}"
+  docker buildx build --platform linux/arm64 -t "$MCP_IMAGE" \
+    "${SCRIPT_DIR}/searxng-mcp/server/" --push
+
+  # Pull VpcId + private subnets from the VPC stack outputs.
+  SEARXNG_VPC_ID=$(aws cloudformation describe-stacks \
+    --stack-name "${PROJECT_NAME}-vpc" --region "$REGION" \
+    --query "Stacks[0].Outputs[?OutputKey=='VpcId'].OutputValue" --output text)
+  PRIV_SUBNET_1=$(aws cloudformation describe-stacks \
+    --stack-name "${PROJECT_NAME}-vpc" --region "$REGION" \
+    --query "Stacks[0].Outputs[?OutputKey=='PrivateSubnet1Id'].OutputValue" --output text)
+  PRIV_SUBNET_2=$(aws cloudformation describe-stacks \
+    --stack-name "${PROJECT_NAME}-vpc" --region "$REGION" \
+    --query "Stacks[0].Outputs[?OutputKey=='PrivateSubnet2Id'].OutputValue" --output text)
+
+  deploy_stack "${PROJECT_NAME}-searxng-mcp" "${CFN_DIR}/07-searxng-mcp.yaml" \
+    "ParameterKey=ProjectName,ParameterValue=${PROJECT_NAME}" \
+    "ParameterKey=TenantName,ParameterValue=${TENANT_NAME}" \
+    "ParameterKey=VpcId,ParameterValue=${SEARXNG_VPC_ID}" \
+    "ParameterKey=PrivateSubnetIds,ParameterValue=\"${PRIV_SUBNET_1},${PRIV_SUBNET_2}\"" \
+    "ParameterKey=SearxngImage,ParameterValue=${SEARXNG_IMAGE}" \
+    "ParameterKey=McpImage,ParameterValue=${MCP_IMAGE}"
+
+  log "SearXNG MCP stack deployed. Registering MCP server in LiteLLM..."
+  # Register against CloudFront endpoint (auth via master-key looked up by the
+  # sync script). Skip with SKIP_SEARXNG_SYNC=1 if you prefer to run it later.
+  if [ "${SKIP_SEARXNG_SYNC:-0}" = "1" ]; then
+    log "SKIP_SEARXNG_SYNC=1 set; run scripts/sync-searxng-mcp.sh manually later."
+  else
+    SEARXNG_SYNC_URL="${LITELLM_PROXY_URL:-}"
+    if [ -z "$SEARXNG_SYNC_URL" ]; then
+      CF_DOMAIN_FOR_SYNC=$(aws cloudformation describe-stacks \
+        --stack-name "${PROJECT_NAME}-cloudfront" --region "$REGION" \
+        --query "Stacks[0].Outputs[?OutputKey=='CloudFrontDomainName'].OutputValue" --output text)
+      SEARXNG_SYNC_URL="https://${CF_DOMAIN_FOR_SYNC}"
+    fi
+    PROJECT_NAME="$PROJECT_NAME" TENANT_NAME="$TENANT_NAME" AWS_REGION="$REGION" \
+      LITELLM_PROXY_URL="$SEARXNG_SYNC_URL" "${SCRIPT_DIR}/scripts/sync-searxng-mcp.sh" \
+      || log "WARN: sync-searxng-mcp.sh failed; re-run it once LiteLLM is healthy."
+  fi
+fi
 
 # ========== Output ==========
 ALB_DNS=$(aws cloudformation describe-stacks \
@@ -147,3 +255,7 @@ log "  2. Force new ECS deployment to pick up secrets:"
 log "     aws ecs update-service --cluster ${PROJECT_NAME}-cluster --service ${PROJECT_NAME}-service --force-new-deployment --region ${REGION}"
 log "  3. Verify health (via CloudFront): curl https://${CF_DOMAIN}/health/liveliness"
 log "  4. (Optional) Add custom domain: configure CNAME + ACM certificate in CloudFront"
+if [ "$DEPLOY_SEARXNG" != "1" ]; then
+  log "  5. (Optional) Self-hosted web search: re-run with DEPLOY_SEARXNG=1 ./deploy.sh"
+  log "     (builds searxng images, deploys cfn/07, registers searxng-web_search MCP; needs Docker)"
+fi
