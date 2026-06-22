@@ -1,0 +1,95 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  AgentCore Web Search Tool gateway for LiteLLM (AWS_IAM inbound auth).
+  Exposes Amazon Bedrock AgentCore managed Web Search as an MCP tool that
+  LiteLLM connects to via SigV4 signed with the ECS task role. Coexists with
+  the self-hosted SearXNG MCP (07-searxng-mcp.yaml); does not replace it.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: litellm-gw
+  LiteLLMTaskRoleName:
+    Type: String
+    Default: litellm-gw-ecs-task-role
+    Description: Existing LiteLLM ECS task role to grant InvokeGateway.
+
+Resources:
+  # Service role assumed by AgentCore to invoke the managed Web Search connector
+  GatewayServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-agentcore-websearch-role'
+      Description: AgentCore Gateway service role for Web Search Tool connector
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock-agentcore.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: websearch-invoke
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: InvokeGateway
+                Effect: Allow
+                Action: bedrock-agentcore:InvokeGateway
+                Resource: !Sub 'arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:gateway/*'
+              - Sid: InvokeWebSearch
+                Effect: Allow
+                Action: bedrock-agentcore:InvokeWebSearch
+                # Service-owned tool ARN, checked per-request by AgentCore
+                Resource: !Sub 'arn:aws:bedrock-agentcore:${AWS::Region}:aws:tool/web-search.v1'
+
+  WebSearchGateway:
+    Type: AWS::BedrockAgentCore::Gateway
+    Properties:
+      Name: litellm-websearch-gw
+      Description: Web Search Tool gateway for LiteLLM (AWS_IAM inbound)
+      RoleArn: !GetAtt GatewayServiceRole.Arn
+      ProtocolType: MCP
+      AuthorizerType: AWS_IAM
+
+  WebSearchTarget:
+    Type: AWS::BedrockAgentCore::GatewayTarget
+    Properties:
+      GatewayIdentifier: !GetAtt WebSearchGateway.GatewayId
+      Name: web-search-tool
+      CredentialProviderConfigurations:
+        - CredentialProviderType: GATEWAY_IAM_ROLE
+      TargetConfiguration:
+        Mcp:
+          Connector:
+            Source:
+              ConnectorId: web-search
+            Configurations:
+              - Name: WebSearch
+                ParameterValues: {}
+
+  # Allow the LiteLLM ECS task role to invoke this gateway over MCP (SigV4 inbound)
+  LiteLLMInvokePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: agentcore-websearch-invoke
+      Roles:
+        - !Ref LiteLLMTaskRoleName
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: InvokeWebSearchGateway
+            Effect: Allow
+            Action: bedrock-agentcore:InvokeGateway
+            Resource: !GetAtt WebSearchGateway.GatewayArn
+
+Outputs:
+  GatewayId:
+    Value: !GetAtt WebSearchGateway.GatewayId
+  GatewayArn:
+    Value: !GetAtt WebSearchGateway.GatewayArn
+  GatewayUrl:
+    Description: MCP endpoint LiteLLM connects to (auth_type aws_sigv4)
+    Value: !GetAtt WebSearchGateway.GatewayUrl
+  ServiceRoleArn:
+    Value: !GetAtt GatewayServiceRole.Arn

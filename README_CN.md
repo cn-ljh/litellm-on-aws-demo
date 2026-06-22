@@ -168,6 +168,24 @@ DEPLOY_SEARXNG=1 ./deploy.sh
 
 可选环境变量：`AURORA_ENGINE_VERSION`（覆盖 Aurora 引擎版本，默认走模板的 `16.6`）、`DEPLOY_SEARXNG=1`（额外构建并部署 SearXNG MCP 模块）、`SEARXNG_IMAGE_TAG`（镜像 tag，默认 `v1`）、`SKIP_SEARXNG_SYNC=1`（跳过部署后的 MCP 注册）。
 
+### AgentCore Web Search Tool（托管 web search，与 SearXNG 并存）
+
+AWS Bedrock AgentCore 于 2026-06-17 GA 了托管的 Web Search 工具：Amazon 自建索引、分钟级更新、查询不出 AWS、零基础设施。本仓库通过 `cfn/08-agentcore-websearch.yaml` 接入，**与自建 SearXNG MCP 并存，不替换**。
+
+架构要点：
+- 建一个 **AgentCore Gateway**（`AuthorizerType: AWS_IAM`，MCP 协议）+ Web Search target（`connectorId: web-search`，工具名 `WebSearch`）。
+- Gateway 自己用一个 service role（`InvokeGateway` + `InvokeWebSearch`，后者 resource 锁服务方 ARN `arn:aws:bedrock-agentcore:<region>:aws:tool/web-search.v1`）。
+- **inbound 鉴权走 IAM，不发任何 key、不建 Cognito/Keycloak**：给 LiteLLM 的 ECS task role（`litellm-gw-ecs-task-role`）加 `bedrock-agentcore:InvokeGateway`，LiteLLM 用 `auth_type=aws_sigv4` 凭证留空回落 boto3 chain（即吃 task role）对 Gateway 做 SigV4 签名。需 LiteLLM ≥ v1.80.18。
+- 仅 `us-east-1` 可用（与本环境对齐）。
+
+注册到 LiteLLM：
+```bash
+GATEWAY_ID=litellm-websearch-gw-xxxxxxxx \
+  LITELLM_PROXY_URL=https://litellm.lijinhong.cn \
+  ./scripts/sync-agentcore-websearch.sh
+```
+LiteLLM 里工具名为 `web-search-tool___WebSearch`，与 SearXNG 的 `web_search`、Tavily、Exa 并列。
+
 部署过程分 5 个阶段：
 
 | 阶段 | 耗时 | 创建的资源 |
