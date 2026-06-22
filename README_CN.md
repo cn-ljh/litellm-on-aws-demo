@@ -164,29 +164,55 @@ AURORA_ENGINE_VERSION=15.5 ./deploy.sh
 
 # 一键部署并集成自建 SearXNG web search MCP 模块（需要 Docker）
 DEPLOY_SEARXNG=1 ./deploy.sh
+
+# 不部署 AgentCore Web Search（默认会部署，见下）
+DEPLOY_AGENTCORE=0 ./deploy.sh
 ```
 
-可选环境变量：`AURORA_ENGINE_VERSION`（覆盖 Aurora 引擎版本，默认走模板的 `16.6`）、`DEPLOY_SEARXNG=1`（额外构建并部署 SearXNG MCP 模块）、`SEARXNG_IMAGE_TAG`（镜像 tag，默认 `v1`）、`SKIP_SEARXNG_SYNC=1`（跳过部署后的 MCP 注册）。
+可选环境变量：
 
-### AgentCore Web Search Tool（托管 web search，与 SearXNG 并存）
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `AURORA_ENGINE_VERSION` | 模板默认 `16.6` | 覆盖 Aurora 引擎版本（某区域无 16.6 时用） |
+| `DEPLOY_AGENTCORE` | `1`（开） | 部署 AgentCore Web Search（托管 web search，`cfn/08`）并注册进 LiteLLM。Docker-free、无需 API key，**默认开启**。仅 `us-east-1` 生效，其它区自动跳过。设 `0` 关闭 |
+| `SKIP_AGENTCORE_SYNC` | `0` | `DEPLOY_AGENTCORE=1` 时，设 `1` 只建 `cfn/08` 栈、稍后再手动注册 MCP server |
+| `DEPLOY_SEARXNG` | `0`（关） | 额外构建并部署自建 SearXNG MCP 模块（**需要 Docker**） |
+| `SEARXNG_IMAGE_TAG` | `v1` | SearXNG 镜像 tag |
+| `SKIP_SEARXNG_SYNC` | `0` | `DEPLOY_SEARXNG=1` 时，设 `1` 跳过部署后的 MCP 注册 |
 
-AWS Bedrock AgentCore 于 2026-06-17 GA 了托管的 Web Search 工具：Amazon 自建索引、分钟级更新、查询不出 AWS、零基础设施。本仓库通过 `cfn/08-agentcore-websearch.yaml` 接入，**与自建 SearXNG MCP 并存，不替换**。
+### AgentCore Web Search Tool（托管 web search，默认部署）
+
+AWS Bedrock AgentCore 于 2026-06-17 GA 了托管的 Web Search 工具：Amazon 自建索引、分钟级更新、查询不出 AWS、零基础设施、无需 API key。本仓库通过 `cfn/08-agentcore-websearch.yaml` 接入，**`deploy.sh` 默认部署并集成进 LiteLLM**（`DEPLOY_AGENTCORE=1`），与自建 SearXNG MCP 并存、不替换。因为它 Docker-free 且无需密钥，所以默认开启（区别于需要 Docker、默认关闭的 SearXNG）。
 
 架构要点：
 - 建一个 **AgentCore Gateway**（`AuthorizerType: AWS_IAM`，MCP 协议）+ Web Search target（`connectorId: web-search`，工具名 `WebSearch`）。
 - Gateway 自己用一个 service role（`InvokeGateway` + `InvokeWebSearch`，后者 resource 锁服务方 ARN `arn:aws:bedrock-agentcore:<region>:aws:tool/web-search.v1`）。
-- **inbound 鉴权走 IAM，不发任何 key、不建 Cognito/Keycloak**：给 LiteLLM 的 ECS task role（`litellm-gw-ecs-task-role`）加 `bedrock-agentcore:InvokeGateway`，LiteLLM 用 `auth_type=aws_sigv4` 凭证留空回落 boto3 chain（即吃 task role）对 Gateway 做 SigV4 签名。需 LiteLLM ≥ v1.80.18。
-- 仅 `us-east-1` 可用（与本环境对齐）。
+- **inbound 鉴权走 IAM，不发任何 key、不建 Cognito/Keycloak**：`cfn/08` 自动给 LiteLLM 的 ECS task role 加 `bedrock-agentcore:InvokeGateway`（task role 名通过 `Fn::ImportValue` 从 ECS 栈的 `${ProjectName}-ECSTaskRoleName` 导出值取得，无需手填）；LiteLLM 用 `auth_type=aws_sigv4`、凭证留空回落 boto3 chain（即吃 task role）对 Gateway 做 SigV4 签名。需 LiteLLM ≥ v1.80.18。
+- **仅 `us-east-1` 可用**：在其它区域 `deploy.sh` 会打印 WARN 并自动跳过该步骤。
 
-注册到 LiteLLM：
+#### 默认随 `deploy.sh` 自动部署
+
+核心部署完成后（CloudFront 之后），脚本的 Step 8 会自动：部署 `cfn/08` 栈 → 调 `scripts/sync-agentcore-websearch.sh` 把 Gateway 注册成 LiteLLM 的 `agentcore_websearch` MCP server。无需任何手动操作。关闭用 `DEPLOY_AGENTCORE=0 ./deploy.sh`；只建栈不注册用 `SKIP_AGENTCORE_SYNC=1`。
+
+#### 手动/单独注册（栈已存在、或稍后补注册时）
+
 ```bash
+# GATEWAY_ID 取自 cfn/08 栈输出 GatewayId（或 aws cloudformation describe-stacks 查询）
 GATEWAY_ID=litellm-websearch-gw-xxxxxxxx \
-  LITELLM_PROXY_URL=https://litellm.lijinhong.cn \
+  LITELLM_PROXY_URL=https://<你的-cloudfront-域名> \
+  PROJECT_NAME=litellm-gw TENANT_NAME=default AWS_REGION=us-east-1 \
   ./scripts/sync-agentcore-websearch.sh
 ```
-LiteLLM 里工具名为 `web-search-tool___WebSearch`，与 SearXNG 的 `web_search`、Tavily、Exa 并列。
 
-部署过程分 5 个阶段：
+LiteLLM 里工具名为 `web-search-tool___WebSearch`，与 SearXNG 的 `web_search`、Tavily、Exa 并列。客户端验证（模型自主调用）：
+```bash
+curl -s -X POST https://<cloudfront域名>/v1/responses \
+  -H "Authorization: Bearer <master_key>" -H "Content-Type: application/json" \
+  -d '{"model":"claude-haiku-4-5","input":"用 web 搜索告诉我今天的某条新闻并给出来源 URL",
+       "tools":[{"type":"mcp","server_label":"agentcore_websearch","server_url":"litellm_proxy","require_approval":"never"}]}'
+```
+
+部署过程分 6 个阶段（Step 7 SearXNG 可选、需 Docker）：
 
 | 阶段 | 耗时 | 创建的资源 |
 |------|------|-----------|
@@ -195,6 +221,8 @@ LiteLLM 里工具名为 `web-search-tool___WebSearch`，与 SearXNG 的 `web_sea
 | 3. 数据层 | ~10-15 分钟 | Aurora、Valkey、S3 |
 | 4. 应用层 | ~3-5 分钟 | ECS、ALB、Auto Scaling、IAM |
 | 5. CDN 层 | ~3-5 分钟 | CloudFront |
+| 6. AgentCore Web Search *(默认开，`us-east-1`)* | ~2-3 分钟 | AgentCore Gateway + Web Search target + service role + task role 授权 + LiteLLM MCP 注册 |
+| 7. SearXNG MCP *(可选 `DEPLOY_SEARXNG=1`，需 Docker)* | ~5-8 分钟 | ECR 镜像、Fargate 服务、Cloud Map DNS、MCP 注册 |
 
 部署完成后，脚本会输出：
 - ✅ CloudFront HTTPS 地址
@@ -517,10 +545,10 @@ aws rds modify-db-cluster --db-cluster-identifier <PROJECT_NAME>-aurora-cluster 
 # 2. 清空 S3 桶
 aws s3 rm s3://<PROJECT_NAME>-config-<ACCOUNT_ID> --recursive --region <YOUR_REGION>
 
-# 3. 按逆序删除堆栈
-for stack in <PROJECT_NAME>-cloudfront <PROJECT_NAME>-ecs <PROJECT_NAME>-data <PROJECT_NAME>-secrets <PROJECT_NAME>-vpc; do
-  aws cloudformation delete-stack --stack-name $stack --region <YOUR_REGION>
-  aws cloudformation wait stack-delete-complete --stack-name $stack --region <YOUR_REGION>
+# 3. 按逆序删除堆栈（可选模块先删 —— cfn/08 给 ECS task role 挂了 policy，须在 ECS 栈之前删）
+for stack in <PROJECT_NAME>-agentcore-websearch <PROJECT_NAME>-searxng-mcp <PROJECT_NAME>-cloudfront <PROJECT_NAME>-ecs <PROJECT_NAME>-data <PROJECT_NAME>-secrets <PROJECT_NAME>-vpc; do
+  aws cloudformation delete-stack --stack-name $stack --region <YOUR_REGION> 2>/dev/null || true
+  aws cloudformation wait stack-delete-complete --stack-name $stack --region <YOUR_REGION> 2>/dev/null || true
   echo "已删除: $stack"
 done
 ```
@@ -732,8 +760,14 @@ litellm-on-aws-demo/
 │   ├── 03-data.yaml             # Aurora、Valkey、S3
 │   ├── 04-ecs.yaml              # ECS、ALB、Auto Scaling、IAM
 │   └── 05-cloudfront.yaml       # CloudFront
+│   ├── 07-searxng-mcp.yaml      # SearXNG MCP web search（可选，需 Docker）
+│   └── 08-agentcore-websearch.yaml  # AgentCore 托管 web search（默认开，us-east-1）
 ├── config/
 │   └── litellm-config.yaml      # 模型路由配置
+├── scripts/
+│   ├── sync-mcp-servers.sh           # 注册 Tavily + Exa MCP
+│   ├── sync-searxng-mcp.sh           # 注册 SearXNG MCP
+│   └── sync-agentcore-websearch.sh   # 注册 AgentCore Web Search MCP
 ├── deploy.sh                    # 一键部署脚本
 ├── README.md                    # English
 └── README_CN.md                 # 中文指南

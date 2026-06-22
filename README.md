@@ -228,6 +228,8 @@ Required only if using non-Bedrock providers:
 | `MinACU` | `0.5` | Aurora minimum capacity (ACU) |
 | `MaxACU` | `4` | Aurora maximum capacity (ACU) |
 | `AURORA_ENGINE_VERSION` | *(template default `16.6`)* | Override Aurora PostgreSQL engine version if `16.6` is unavailable in your region |
+| `DEPLOY_AGENTCORE` | `1` *(on)* | Deploy AgentCore Web Search (managed web search, `cfn/08`) and register it in LiteLLM. Docker-free, no API keys, **on by default**. Only effective in `us-east-1` (skipped with a warning elsewhere). Set `0` to skip |
+| `SKIP_AGENTCORE_SYNC` | `0` | With `DEPLOY_AGENTCORE=1`, set `1` to deploy `cfn/08` only and register the MCP server later |
 | `DEPLOY_SEARXNG` | `0` | Set `1` to also build/push the SearXNG images, deploy `cfn/07`, and register the `searxng-web_search` MCP (requires Docker) |
 | `SEARXNG_IMAGE_TAG` | `v1` | Image tag for the SearXNG + MCP server images |
 | `SKIP_SEARXNG_SYNC` | `0` | With `DEPLOY_SEARXNG=1`, set `1` to skip the post-deploy MCP registration |
@@ -241,6 +243,9 @@ AURORA_ENGINE_VERSION=15.5 ./deploy.sh
 
 # One-shot deploy including the self-hosted SearXNG web-search MCP module
 DEPLOY_SEARXNG=1 ./deploy.sh
+
+# Skip the (default-on) AgentCore Web Search step
+DEPLOY_AGENTCORE=0 ./deploy.sh
 ```
 
 > **Tip**: For dev/test use `MinACU=0.5 / MaxACU=2`. For production consider `MinACU=1 / MaxACU=16`.
@@ -254,6 +259,7 @@ DEPLOY_SEARXNG=1 ./deploy.sh
 | 3. Data | ~10-15 min | Aurora Serverless v2, Valkey, S3 |
 | 4. ECS | ~3-5 min | ECS Fargate, ALB, IAM, CloudWatch |
 | 5. CloudFront | ~3-5 min | CloudFront (HTTPS) |
+| 6. AgentCore Web Search *(default on, `us-east-1`)* | ~2-3 min | AgentCore Gateway + web-search target + service role + task-role grant + LiteLLM MCP registration |
 | 7. SearXNG MCP *(optional, `DEPLOY_SEARXNG=1`)* | ~5-8 min | ECR images, Fargate service, Cloud Map DNS, MCP registration |
 
 ### Configure Provider API Keys (Optional)
@@ -497,15 +503,16 @@ aws bedrock list-inference-profiles --region <YOUR_REGION> --type SYSTEM_DEFINED
 
 ---
 
-## MCP Gateway (Tavily + Exa + SearXNG)
+## MCP Gateway (Tavily + Exa + SearXNG + AgentCore Web Search)
 
-LiteLLM Proxy doubles as an **MCP Gateway** that exposes search tools (Tavily, Exa, self-hosted SearXNG) to all clients via a single endpoint. Clients no longer need their own search API keys.
+LiteLLM Proxy doubles as an **MCP Gateway** that exposes search tools (Tavily, Exa, self-hosted SearXNG, AgentCore Web Search) to all clients via a single endpoint. Clients no longer need their own search API keys.
 
 ### Available tools
 
 - `tavily-tavily_search`, `tavily-tavily_extract`, `tavily-tavily_crawl`, `tavily-tavily_map`, `tavily-tavily_research`
 - `exa-web_search_exa`, `exa-web_fetch_exa`
 - `searxng-web_search` (self-hosted, no API key / no quota)
+- `web-search-tool___WebSearch` (AgentCore managed web search, deployed by default; no API key)
 
 ### Client usage
 
@@ -668,6 +675,43 @@ LITELLM_PROXY_URL=https://your-domain ./scripts/sync-searxng-mcp.sh
 
 ---
 
+### AgentCore Web Search: managed web search (default on, no API key)
+
+Amazon Bedrock AgentCore went GA on 2026-06-17 with a fully managed, MCP-compliant Web Search tool: Amazon's own continuously-updated index, queries never leave AWS, zero infrastructure, no API keys. The repo wires it in via `cfn/08-agentcore-websearch.yaml` and **`deploy.sh` deploys + registers it by default** (`DEPLOY_AGENTCORE=1`). It coexists with the self-hosted SearXNG MCP; it does not replace it. **`us-east-1` only.**
+
+How it works:
+- A **AgentCore Gateway** (`AuthorizerType: AWS_IAM`, MCP) plus a Web Search target (`connectorId: web-search`, tool `WebSearch`).
+- The Gateway uses a service role (`InvokeGateway` + `InvokeWebSearch`; the latter scoped to the service-owned ARN `arn:aws:bedrock-agentcore:<region>:aws:tool/web-search.v1`).
+- **Inbound auth is IAM — no keys, no Cognito/Keycloak.** `cfn/08` grants the LiteLLM ECS task role `bedrock-agentcore:InvokeGateway` automatically (the task role name is pulled from the ECS stack export `${ProjectName}-ECSTaskRoleName` via `Fn::ImportValue`, so nothing is hand-wired). LiteLLM registers the server with `auth_type=aws_sigv4` and **empty credentials**, so it falls back to the boto3 chain (the task role) and SigV4-signs every MCP request. Requires LiteLLM >= v1.80.18.
+
+Default deploy (nothing to do — runs as Step 6 after CloudFront):
+```bash
+./deploy.sh            # AgentCore Web Search deployed + registered automatically
+DEPLOY_AGENTCORE=0 ./deploy.sh    # skip it
+SKIP_AGENTCORE_SYNC=1 ./deploy.sh # deploy cfn/08 but register the MCP server later
+```
+
+Manual / standalone registration (stack already exists, or registering later):
+```bash
+# GATEWAY_ID comes from the cfn/08 output "GatewayId"
+GATEWAY_ID=litellm-websearch-gw-xxxxxxxx \
+  LITELLM_PROXY_URL=https://<your-cloudfront-domain> \
+  PROJECT_NAME=litellm-gw TENANT_NAME=default AWS_REGION=us-east-1 \
+  ./scripts/sync-agentcore-websearch.sh
+```
+
+Verify (model autonomously calls the tool):
+```bash
+curl -s -X POST https://<cloudfront-domain>/v1/responses \
+  -H "Authorization: Bearer <master_key>" -H "Content-Type: application/json" \
+  -d '{"model":"claude-haiku-4-5","input":"Use web search for a current news item and give a source URL",
+       "tools":[{"type":"mcp","server_label":"agentcore_websearch","server_url":"litellm_proxy","require_approval":"never"}]}'
+```
+
+The tool appears in LiteLLM as `web-search-tool___WebSearch`, alongside SearXNG's `web_search`, Tavily, and Exa.
+
+---
+
 ## Cleanup
 
 ```bash
@@ -678,10 +722,11 @@ aws rds modify-db-cluster --db-cluster-identifier <PROJECT_NAME>-aurora-cluster 
 # 2. Empty S3 bucket
 aws s3 rm s3://<PROJECT_NAME>-config-<ACCOUNT_ID> --recursive --region <YOUR_REGION>
 
-# 3. Delete stacks in reverse order
-for stack in <PROJECT_NAME>-cloudfront <PROJECT_NAME>-ecs <PROJECT_NAME>-data <PROJECT_NAME>-secrets <PROJECT_NAME>-vpc; do
-  aws cloudformation delete-stack --stack-name $stack --region <YOUR_REGION>
-  aws cloudformation wait stack-delete-complete --stack-name $stack --region <YOUR_REGION>
+# 3. Delete stacks in reverse order (optional modules first - cfn/08 attaches a
+#    policy to the ECS task role, so it must be removed before the ECS stack)
+for stack in <PROJECT_NAME>-agentcore-websearch <PROJECT_NAME>-searxng-mcp <PROJECT_NAME>-cloudfront <PROJECT_NAME>-ecs <PROJECT_NAME>-data <PROJECT_NAME>-secrets <PROJECT_NAME>-vpc; do
+  aws cloudformation delete-stack --stack-name $stack --region <YOUR_REGION> 2>/dev/null || true
+  aws cloudformation wait stack-delete-complete --stack-name $stack --region <YOUR_REGION> 2>/dev/null || true
   echo "Deleted: $stack"
 done
 ```
@@ -723,7 +768,8 @@ litellm-on-aws/
 │   ├── 03-data.yaml             # Aurora, Valkey, S3
 │   ├── 04-ecs.yaml              # ECS, ALB, IAM
 │   ├── 05-cloudfront.yaml       # CloudFront
-│   └── 07-searxng-mcp.yaml      # SearXNG MCP web-search service (optional)
+│   ├── 07-searxng-mcp.yaml      # SearXNG MCP web-search service (optional, Docker)
+│   └── 08-agentcore-websearch.yaml  # AgentCore managed web search (default on, us-east-1)
 ├── config/
 │   ├── litellm-config.yaml      # Model routing config
 │   └── callbacks/
