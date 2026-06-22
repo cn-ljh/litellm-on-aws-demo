@@ -130,6 +130,12 @@ Resources:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Sub "${ProjectName}-config-${AWS::AccountId}"
+      # NOTE: S3 buckets are encrypted with AES256 by default since Jan 2023, so
+      # this explicit block is belt-and-suspenders. If you deploy into an AWS
+      # Organizations account whose SCP denies s3:PutEncryptionConfiguration,
+      # CloudFormation will fail to create OR delete this bucket (403 explicit
+      # deny). In that case, remove this BucketEncryption block - the bucket is
+      # still AES256-encrypted by S3 default.
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:

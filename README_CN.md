@@ -572,6 +572,18 @@ done
 
 ## 常见问题
 
+### Q: 部署或删除时 S3 config 桶报 `s3:PutEncryptionConfiguration` 显式拒绝（SCP）
+
+**根因**：账户在某 AWS Organization 下、其 SCP 拒绝了 `s3:PutEncryptionConfiguration`。`*-data` 栈的 `ConfigBucket` 带 `BucketEncryption` 属性，CloudFormation 创建/删除桶时会调 `PutBucketEncryption` → 403 显式拒绝，导致建栈失败、删栈也失败（`DELETE_FAILED`）。
+
+**解决**：删掉 `cfn/03-data.yaml` 里 `ConfigBucket` 的 `BucketEncryption` 块即可（S3 自 2023-01 起默认 AES256 加密，桶仍然加密）。若栈已卡在 `DELETE_FAILED`，先清空桶的所有**版本**（桶开了 versioning，需对每个 version 和 delete marker 跑 `aws s3api delete-object --version-id ...`），再重试删栈。
+
+### Q: `DEPLOY_SEARXNG=1` 时 SearXNG 镜像 build 报 base 镜像 `not found`
+
+**根因**：上游 `searxng/searxng` 只保留滚动日期 tag（如 `2026.6.22-<sha>`）并定期清理旧 tag，所以 Dockerfile 里 pin 的旧 tag 可能从 Docker Hub 消失。
+
+**解决**：把 `searxng-mcp/searxng/Dockerfile` 的 `FROM searxng/searxng:<tag>` 改成一个当前可用的 tag（`docker buildx imagetools inspect searxng/searxng:<tag>` 确认含 `linux/arm64`），或 pin 到不可变 digest `searxng/searxng@sha256:<digest>`。
+
 ### Q: 升级到 1.84+ 后，ECS task 启动后 child process 反复 die
 
 **根因**：LiteLLM 1.80+ 在 `--num_workers >= 2` 时父进程 fork 出来的 worker 启动后立即崩溃且不输出 stderr，是 [BerriAI/litellm#18457](https://github.com/BerriAI/litellm/issues/18457) 的已知 bug。

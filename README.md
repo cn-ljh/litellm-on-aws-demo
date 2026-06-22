@@ -791,6 +791,15 @@ litellm-on-aws/
 
 
 <details>
+<summary><b>Deploy/delete fails on the S3 config bucket with <code>s3:PutEncryptionConfiguration</code> explicit deny (SCP)</b></summary>
+
+If your account is in an AWS Organization whose Service Control Policy denies `s3:PutEncryptionConfiguration`, the `*-data` stack fails to create **and** to delete the `ConfigBucket` (403 explicit deny), because CloudFormation calls `PutBucketEncryption` for the `BucketEncryption` property.
+
+**Fix:** remove the `BucketEncryption` block from `cfn/03-data.yaml` (`ConfigBucket`). S3 buckets are AES256-encrypted by default since Jan 2023, so the bucket stays encrypted. If a stack is already stuck in `DELETE_FAILED`, empty all object **versions** first (`aws s3api delete-object --version-id ...` for every version and delete marker, since versioning is enabled), then re-run the stack delete.
+
+</details>
+
+<details>
 <summary><b>User key returns "model not allowed" (403) after creating user via UI</b></summary>
 
 When creating users through the LiteLLM Admin UI, there is no model selection field. The default `models` value is set to `["no-default-models"]`, which **blocks access to all models** — even if you later select models when generating a key.
