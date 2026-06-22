@@ -20,6 +20,13 @@ AURORA_ENGINE_VERSION="${AURORA_ENGINE_VERSION:-}"
 DEPLOY_SEARXNG="${DEPLOY_SEARXNG:-0}"
 SEARXNG_IMAGE_TAG="${SEARXNG_IMAGE_TAG:-v1}"
 
+# AgentCore Web Search Tool (cfn/08). Managed, Docker-free web search exposed as
+# an MCP tool that LiteLLM calls via SigV4 (ECS task role). Enabled by default
+# because it needs no extra infrastructure or API keys; only available in
+# us-east-1. Set DEPLOY_AGENTCORE=0 to skip, or SKIP_AGENTCORE_SYNC=1 to deploy
+# the stack but register the MCP server later.
+DEPLOY_AGENTCORE="${DEPLOY_AGENTCORE:-1}"
+
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 
 # Auto-detect latest LiteLLM stable release, or use pinned version
@@ -272,6 +279,50 @@ if [ "$DEPLOY_SEARXNG" = "1" ]; then
   fi
 fi
 
+# ========== Step 8: AgentCore Web Search Tool (default on) ==========
+# Managed, MCP-compliant web search on Amazon Bedrock AgentCore. Deploys cfn/08
+# (Gateway + web-search connector target + Gateway service role + grants the
+# LiteLLM ECS task role InvokeGateway) and registers it in LiteLLM as the
+# "agentcore_websearch" MCP server (auth_type aws_sigv4, credentials from the
+# task role). Docker-free, no API keys. us-east-1 only. Disable with
+# DEPLOY_AGENTCORE=0.
+if [ "$DEPLOY_AGENTCORE" = "1" ]; then
+  log "========================================="
+  log " Step 8: AgentCore Web Search Tool"
+  log "========================================="
+  if [ "$REGION" != "us-east-1" ]; then
+    log "WARN: AgentCore Web Search Tool is only available in us-east-1 (region is ${REGION}). Skipping."
+  else
+    deploy_stack "${PROJECT_NAME}-agentcore-websearch" "${CFN_DIR}/08-agentcore-websearch.yaml" \
+      "ParameterKey=ProjectName,ParameterValue=${PROJECT_NAME}"
+
+    AGENTCORE_GW_ID=$(aws cloudformation describe-stacks \
+      --stack-name "${PROJECT_NAME}-agentcore-websearch" --region "$REGION" \
+      --query "Stacks[0].Outputs[?OutputKey=='GatewayId'].OutputValue" --output text)
+    if [ -z "$AGENTCORE_GW_ID" ] || [ "$AGENTCORE_GW_ID" = "None" ]; then
+      log "ERROR: could not resolve AgentCore Gateway id from stack outputs."
+      exit 1
+    fi
+
+    log "AgentCore Gateway ${AGENTCORE_GW_ID} deployed. Registering MCP server in LiteLLM..."
+    if [ "${SKIP_AGENTCORE_SYNC:-0}" = "1" ]; then
+      log "SKIP_AGENTCORE_SYNC=1 set; run scripts/sync-agentcore-websearch.sh manually later."
+    else
+      AGENTCORE_SYNC_URL="${LITELLM_PROXY_URL:-}"
+      if [ -z "$AGENTCORE_SYNC_URL" ]; then
+        CF_DOMAIN_FOR_AC=$(aws cloudformation describe-stacks \
+          --stack-name "${PROJECT_NAME}-cloudfront" --region "$REGION" \
+          --query "Stacks[0].Outputs[?OutputKey=='CloudFrontDomainName'].OutputValue" --output text)
+        AGENTCORE_SYNC_URL="https://${CF_DOMAIN_FOR_AC}"
+      fi
+      GATEWAY_ID="$AGENTCORE_GW_ID" PROJECT_NAME="$PROJECT_NAME" TENANT_NAME="$TENANT_NAME" \
+        AWS_REGION="$REGION" LITELLM_PROXY_URL="$AGENTCORE_SYNC_URL" \
+        "${SCRIPT_DIR}/scripts/sync-agentcore-websearch.sh" \
+        || log "WARN: sync-agentcore-websearch.sh failed; re-run it once LiteLLM is healthy."
+    fi
+  fi
+fi
+
 # ========== Output ==========
 ALB_DNS=$(aws cloudformation describe-stacks \
   --stack-name "${PROJECT_NAME}-ecs" \
@@ -313,4 +364,7 @@ log "  4. (Optional) Add custom domain: configure CNAME + ACM certificate in Clo
 if [ "$DEPLOY_SEARXNG" != "1" ]; then
   log "  5. (Optional) Self-hosted web search: re-run with DEPLOY_SEARXNG=1 ./deploy.sh"
   log "     (builds searxng images, deploys cfn/07, registers searxng-web_search MCP; needs Docker)"
+fi
+if [ "$DEPLOY_AGENTCORE" = "1" ] && [ "$REGION" = "us-east-1" ]; then
+  log "  AgentCore Web Search Tool deployed + registered (MCP tool web-search-tool___WebSearch)."
 fi

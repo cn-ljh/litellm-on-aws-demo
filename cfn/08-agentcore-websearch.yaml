@@ -11,8 +11,14 @@ Parameters:
     Default: litellm-gw
   LiteLLMTaskRoleName:
     Type: String
-    Default: litellm-gw-ecs-task-role
-    Description: Existing LiteLLM ECS task role to grant InvokeGateway.
+    Default: ''
+    Description: >
+      LiteLLM ECS task role to grant InvokeGateway. Leave empty to import it
+      from the ECS stack export "${ProjectName}-ECSTaskRoleName" (default when
+      deployed via deploy.sh). Set explicitly to override.
+
+Conditions:
+  ImportTaskRole: !Equals [!Ref LiteLLMTaskRoleName, '']
 
 Resources:
   # Service role assumed by AgentCore to invoke the managed Web Search connector
@@ -74,7 +80,11 @@ Resources:
     Properties:
       PolicyName: agentcore-websearch-invoke
       Roles:
-        - !Ref LiteLLMTaskRoleName
+        - !If
+          - ImportTaskRole
+          - !ImportValue
+            'Fn::Sub': '${ProjectName}-ECSTaskRoleName'
+          - !Ref LiteLLMTaskRoleName
       PolicyDocument:
         Version: '2012-10-17'
         Statement:

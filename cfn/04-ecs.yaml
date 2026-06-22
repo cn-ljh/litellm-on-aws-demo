@@ -488,3 +488,8 @@ Outputs:
     Description: "Security group of the LiteLLM ECS tasks (consumed by searxng-mcp stack)"
     Export:
       Name: !Sub "${ProjectName}-ECSSecurityGroup"
+  ECSTaskRoleName:
+    Value: !Ref ECSTaskRole
+    Description: "LiteLLM ECS task role name (consumed by agentcore-websearch stack to grant InvokeGateway)"
+    Export:
+      Name: !Sub "${ProjectName}-ECSTaskRoleName"
