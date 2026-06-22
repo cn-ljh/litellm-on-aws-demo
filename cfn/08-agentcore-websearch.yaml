@@ -55,7 +55,7 @@ Resources:
   WebSearchTarget:
     Type: AWS::BedrockAgentCore::GatewayTarget
     Properties:
-      GatewayIdentifier: !GetAtt WebSearchGateway.GatewayId
+      GatewayIdentifier: !GetAtt WebSearchGateway.GatewayIdentifier
       Name: web-search-tool
       CredentialProviderConfigurations:
         - CredentialProviderType: GATEWAY_IAM_ROLE
@@ -85,7 +85,7 @@ Resources:
 
 Outputs:
   GatewayId:
-    Value: !GetAtt WebSearchGateway.GatewayId
+    Value: !GetAtt WebSearchGateway.GatewayIdentifier
   GatewayArn:
     Value: !GetAtt WebSearchGateway.GatewayArn
   GatewayUrl:
