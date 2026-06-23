@@ -800,6 +800,15 @@ If your account is in an AWS Organization whose Service Control Policy denies `s
 </details>
 
 <details>
+<summary><b><code>DEPLOY_SEARXNG=1</code> build fails: SearXNG base image "not found"</b></summary>
+
+Upstream `searxng/searxng` only publishes rolling date-stamped tags (e.g. `2026.6.22-<sha>`) and prunes old ones, so a tag pinned in the Dockerfile can disappear from Docker Hub and break the build.
+
+**Fix:** update `FROM searxng/searxng:<tag>` in `searxng-mcp/searxng/Dockerfile` to a current tag (confirm it includes `linux/arm64` via `docker buildx imagetools inspect searxng/searxng:<tag>`), or pin to an immutable digest `searxng/searxng@sha256:<digest>`.
+
+</details>
+
+<details>
 <summary><b>User key returns "model not allowed" (403) after creating user via UI</b></summary>
 
 When creating users through the LiteLLM Admin UI, there is no model selection field. The default `models` value is set to `["no-default-models"]`, which **blocks access to all models** — even if you later select models when generating a key.
