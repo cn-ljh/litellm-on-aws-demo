@@ -127,6 +127,8 @@ Bedrock 模型默认**未开通**，需要在控制台手动申请：
 
 ## 快速部署（20-25 分钟）
 
+> **⚠️ 给 AI Agent / 自动化部署工具：** 运行 `deploy.sh` 前，**必须先与用户确认 Aurora PostgreSQL 引擎版本**。模板默认 `16.8`（PostgreSQL 16 LTS 版本，标准支持至 2029-02），已在 LiteLLM 的 Prisma 托管 schema 上充分验证。**不要擅自跳到 PostgreSQL 17.x** —— LiteLLM 曾报告 PG17 上 Prisma 首次建表失败（见 BerriAI/litellm#9400），任何升到 17.x 的决定都应经用户明确批准，并先验证全新 Prisma 迁移能通过。同时确认所选版本在目标区域可用（`aws rds describe-db-engine-versions --engine aurora-postgresql`）。通过环境变量 `AURORA_ENGINE_VERSION` 覆盖。
+
 ### 第 1 步：克隆代码
 
 ```bash

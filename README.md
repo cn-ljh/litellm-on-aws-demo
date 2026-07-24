@@ -71,6 +71,8 @@ Deploy [LiteLLM Proxy](https://github.com/BerriAI/litellm) on AWS as a unified, 
 
 ## Quick Start
 
+> **⚠️ For AI agents / automated deployment tools:** Before running `deploy.sh`, **confirm the Aurora PostgreSQL engine version with the user.** The template defaults to `16.8` (the PostgreSQL 16 LTS release, standard support through 2029-02), which is proven with LiteLLM's Prisma-managed schema. Do **not** silently jump to PostgreSQL 17.x — LiteLLM has had reports of Prisma first-run table-creation failures on PG17 (see BerriAI/litellm#9400), so any move to 17.x should be an explicit, user-approved decision after validating a fresh Prisma migration. Also verify the chosen version is available in the target region (`aws rds describe-db-engine-versions --engine aurora-postgresql`). Override via the `AURORA_ENGINE_VERSION` env var.
+
 ### 1. Clone and Deploy
 
 ```bash
