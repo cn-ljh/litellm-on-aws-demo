@@ -21,8 +21,8 @@ Parameters:
     Description: "Aurora Serverless v2 maximum ACU (0.5 - 256)"
   AuroraEngineVersion:
     Type: String
-    Default: "16.6"
-    Description: "Aurora PostgreSQL engine version. Verify availability in your region via: aws rds describe-db-engine-versions --engine aurora-postgresql"
+    Default: "16.8"
+    Description: "Aurora PostgreSQL engine version (16.8 is the PG16 LTS release, standard support through 2029-02). Verify availability in your region via: aws rds describe-db-engine-versions --engine aurora-postgresql"
 
 Resources:
   # --- Security Groups ---

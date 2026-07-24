@@ -8,9 +8,9 @@ CFN_DIR="$(cd "$(dirname "$0")/cfn" && pwd)"
 CONFIG_DIR="$(cd "$(dirname "$0")/config" && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Aurora engine version override. Defaults to the template default ("16.6") when
-# left empty so existing behaviour is unchanged. Set AURORA_ENGINE_VERSION to
-# pin a version available in your target region, e.g.
+# Aurora engine version override. Defaults to the template default ("16.8", the
+# PG16 LTS release) when left empty so existing behaviour is unchanged. Set
+# AURORA_ENGINE_VERSION to pin a version available in your target region, e.g.
 #   AURORA_ENGINE_VERSION=15.5 ./deploy.sh
 AURORA_ENGINE_VERSION="${AURORA_ENGINE_VERSION:-}"
 

@@ -159,7 +159,7 @@ chmod +x deploy.sh
 ```bash
 PROJECT_NAME=my-llm-gw TENANT_NAME=myteam AWS_REGION=us-west-2 ./deploy.sh
 
-# 覆盖 Aurora 引擎版本（某区域没有默认的 16.6 时）
+# 覆盖 Aurora 引擎版本（某区域没有默认的 16.8 时）
 AURORA_ENGINE_VERSION=15.5 ./deploy.sh
 
 # 一键部署并集成自建 SearXNG web search MCP 模块（需要 Docker）
@@ -173,7 +173,7 @@ DEPLOY_AGENTCORE=0 ./deploy.sh
 
 | 变量 | 默认 | 说明 |
 |------|------|------|
-| `AURORA_ENGINE_VERSION` | 模板默认 `16.6` | 覆盖 Aurora 引擎版本（某区域无 16.6 时用） |
+| `AURORA_ENGINE_VERSION` | 模板默认 `16.8`（PG16 LTS） | 覆盖 Aurora 引擎版本（某区域无 16.8 时用） |
 | `DEPLOY_AGENTCORE` | `1`（开） | 部署 AgentCore Web Search（托管 web search，`cfn/08`）并注册进 LiteLLM。Docker-free、无需 API key，**默认开启**。仅 `us-east-1` 生效，其它区自动跳过。设 `0` 关闭 |
 | `SKIP_AGENTCORE_SYNC` | `0` | `DEPLOY_AGENTCORE=1` 时，设 `1` 只建 `cfn/08` 栈、稍后再手动注册 MCP server |
 | `DEPLOY_SEARXNG` | `0`（关） | 额外构建并部署自建 SearXNG MCP 模块（**需要 Docker**） |

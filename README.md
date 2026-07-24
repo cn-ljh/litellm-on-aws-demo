@@ -227,7 +227,7 @@ Required only if using non-Bedrock providers:
 | `LITELLM_VERSION` | *(auto-detect)* | Pin a specific version, e.g. `v1.82.3-stable.patch.2` |
 | `MinACU` | `0.5` | Aurora minimum capacity (ACU) |
 | `MaxACU` | `4` | Aurora maximum capacity (ACU) |
-| `AURORA_ENGINE_VERSION` | *(template default `16.6`)* | Override Aurora PostgreSQL engine version if `16.6` is unavailable in your region |
+| `AURORA_ENGINE_VERSION` | *(template default `16.8`, PG16 LTS)* | Override Aurora PostgreSQL engine version if `16.8` is unavailable in your region |
 | `DEPLOY_AGENTCORE` | `1` *(on)* | Deploy AgentCore Web Search (managed web search, `cfn/08`) and register it in LiteLLM. Docker-free, no API keys, **on by default**. Only effective in `us-east-1` (skipped with a warning elsewhere). Set `0` to skip |
 | `SKIP_AGENTCORE_SYNC` | `0` | With `DEPLOY_AGENTCORE=1`, set `1` to deploy `cfn/08` only and register the MCP server later |
 | `DEPLOY_SEARXNG` | `0` | Set `1` to also build/push the SearXNG images, deploy `cfn/07`, and register the `searxng-web_search` MCP (requires Docker) |
@@ -238,7 +238,7 @@ Required only if using non-Bedrock providers:
 # Deploy with custom parameters
 PROJECT_NAME=my-llm-gw TENANT_NAME=myteam AWS_REGION=us-west-2 ./deploy.sh
 
-# Override Aurora engine version (e.g. region without 16.6)
+# Override Aurora engine version (e.g. region without 16.8)
 AURORA_ENGINE_VERSION=15.5 ./deploy.sh
 
 # One-shot deploy including the self-hosted SearXNG web-search MCP module
