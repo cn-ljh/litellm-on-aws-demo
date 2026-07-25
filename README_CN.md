@@ -295,7 +295,7 @@ curl https://<YOUR_CLOUDFRONT_DOMAIN>/chat/completions \
 
 | 调用名称 | 模型 ID | 定位 |
 |----------|---------|------|
-| `claude-opus-4-8` | `us.anthropic.claude-opus-4-8` | 最强能力，复杂推理 |
+| `claude-opus-4-8` | `us.anthropic.claude-opus-4-8` | 最强能力，复杂推理；1M 上下文 / 128K 最大输出 / 支持视觉与 prompt caching |
 | `claude-sonnet-4-6` | `us.anthropic.claude-sonnet-4-6` | **性价比最优，推荐** |
 | `claude-haiku-4-5` | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | 最快最便宜 |
 
