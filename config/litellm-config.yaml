@@ -31,18 +31,23 @@ model_list:
         - context_management
 
   # --- AWS Bedrock (IAM task role, no API key needed) ---
+  # Claude Opus 4.8 — 2026-05-28 GA on Bedrock；2026-07-25 校正接入。
+  # inference profile us.anthropic.claude-opus-4-8 已 ACTIVE(us-east-1)，实测 invoke OK。
+  # 支持 1M 上下文 / 128K max output / vision / prompt caching / reasoning。
   - model_name: claude-opus-4-8
     litellm_params:
       model: bedrock/us.anthropic.claude-opus-4-8
       aws_region_name: us-east-1
       additional_drop_params:
         - context_management
-    # LiteLLM cost map 暂未收录 4.8，手工注入 context window + 定价（按 Opus 同价占位）
+    # LiteLLM cost map 暂未收录 4.8，手工注入 context window + 定价（按 Opus 线 $15/$75 占位，待官方校正）
     model_info:
-      max_input_tokens: 200000
-      max_output_tokens: 32000
+      max_input_tokens: 1000000
+      max_output_tokens: 128000
       input_cost_per_token: 0.000015
       output_cost_per_token: 0.000075
+      cache_creation_input_token_cost: 0.00001875
+      cache_read_input_token_cost: 0.0000015
       supports_function_calling: true
       supports_vision: true
       supports_prompt_caching: true
