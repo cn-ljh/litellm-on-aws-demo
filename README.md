@@ -152,6 +152,7 @@ curl https://<YOUR_CLOUDFRONT_DOMAIN>/chat/completions \
 
 | Model Name | Provider | Model ID | Notes |
 |-----------|----------|----------|-------|
+| `claude-opus-5` | AWS Bedrock | `us.anthropic.claude-opus-5` | **Most capable** — 1M context, 128K output; adaptive thinking on by default. Rejects `temperature`/`top_p`/`top_k` (must be dropped) |
 | `claude-opus-4-8` | AWS Bedrock | `us.anthropic.claude-opus-4-8` | Most capable — 1M context, 128K max output, vision + prompt caching |
 | `claude-sonnet-4-6` | AWS Bedrock | `us.anthropic.claude-sonnet-4-6` | **Best value** |
 | `claude-haiku-4-5` | AWS Bedrock | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | Fastest & cheapest |
