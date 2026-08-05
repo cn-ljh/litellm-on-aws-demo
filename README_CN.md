@@ -533,6 +533,74 @@ aws rds modify-db-cluster --db-cluster-identifier <PROJECT_NAME>-aurora-cluster 
   --apply-immediately --region <YOUR_REGION>
 ```
 
+---
+
+## 更新环境
+
+部署后最常改的两件事是 **LiteLLM 版本** 和 **模型列表**，按正确顺序做都是低风险操作。网关在容器启动时从 S3 加载 `config/litellm-config.yaml`，所以改配置只需滚动重启。
+
+### 升级 LiteLLM 版本
+
+运行版本由容器镜像 tag 固定（CloudFormation 参数 `LiteLLMImage`）。`deploy.sh` 会自动检测最新 stable，也可显式指定。
+
+```bash
+# 1. 查看当前运行版本（看 ECS task definition 的镜像 tag）
+aws ecs describe-task-definition --task-definition <PROJECT_NAME>-task \
+  --query 'taskDefinition.containerDefinitions[0].image' --output text --region <YOUR_REGION>
+
+# 2. 指定目标版本重跑 deploy.sh（只更新 ECS 栈）
+#    tag 命名：1.84+ 用裸 tag "v1.95.0"；<= 1.83.x 用 "main-v1.83.7-stable"。
+#    deploy.sh 两种都处理。不设 LITELLM_VERSION 则自动检测最新 stable。
+LITELLM_VERSION=v1.95.0 ./deploy.sh
+
+# 3. 滚动完成后验证（ECS 滚动替换零停机：minHealthy=100%，max=200%）
+curl -s https://<YOUR_ENDPOINT>/health/readiness   # -> {"status":"healthy","db":"connected"}
+```
+
+> **升级为了用新模型时，先确认 model registry 支持。** 某个模型只有在 LiteLLM 的价格/上下文映射收录后才能用。例：OpenAI GPT-5.6 是 **v1.93.0** 才并入的（1.92.0 还没有）。确认方法：
+> ```bash
+> curl -s "https://raw.githubusercontent.com/BerriAI/litellm/<TAG>/model_prices_and_context_window.json" \
+>   | python3 -c "import sys,json;d=json.load(sys.stdin);print([k for k in d if 'gpt-5.6' in k])"
+> ```
+
+> **Prisma 迁移是单向的。** 新版本首次启动可能加 DB 表/列（向前兼容：只加不删）。回滚*镜像*没问题，schema 会保留。多版本共享同一个 Aurora 集群时要想清楚。
+
+> **`--num_workers` 保持 `1`。** 0.5 vCPU 任务上，LiteLLM 1.80+ 用 `>= 2` 会静默崩溃子进程（[#18457](https://github.com/BerriAI/litellm/issues/18457)）。
+
+### 增加或修改模型
+
+模型在 `config/litellm-config.yaml`。编辑 → 同步到 S3 → 强制滚动重启。
+
+```bash
+# 1. 编辑 config/litellm-config.yaml（增删一条 model_list 条目）
+
+# 2. 上传到 config 桶（先备份当前的）
+BUCKET=<PROJECT_NAME>-config-<ACCOUNT_ID>
+aws s3 cp "s3://$BUCKET/litellm-config.yaml" "s3://$BUCKET/backups/litellm-config.$(date +%Y%m%d-%H%M%S).yaml" --region <YOUR_REGION>
+aws s3 cp config/litellm-config.yaml "s3://$BUCKET/litellm-config.yaml" --region <YOUR_REGION>
+
+# 3. 滚动重启，让容器从 S3 重新加载配置
+aws ecs update-service --cluster <PROJECT_NAME>-cluster --service <PROJECT_NAME>-service \
+  --force-new-deployment --region <YOUR_REGION>
+aws ecs wait services-stable --cluster <PROJECT_NAME>-cluster --services <PROJECT_NAME>-service --region <YOUR_REGION>
+
+# 4. 验证新模型已上线
+curl -s https://<YOUR_ENDPOINT>/v1/models -H "Authorization: Bearer <MASTER_KEY>" \
+  | python3 -c "import sys,json;print([m['id'] for m in json.load(sys.stdin)['data']])"
+```
+
+**本仓库的 Bedrock 模型约定：**
+
+- **不硬编码区域。** Bedrock 条目不写 `aws_region_name`，区域从 ECS 任务注入的 `AWS_REGION_NAME` 继承。用与你区域匹配的推理配置文件前缀（`us.`/`eu.`/`apac.`）。
+- **Claude** 用 `bedrock/us.anthropic.<model>`，走任务角色 IAM。
+- **GPT-5.6** 用 `bedrock_mantle/openai.gpt-5.6-<sol|terra|luna>`（走 `bedrock-mantle` 端点的 OpenAI Responses API）。认证是任务角色 SigV4 —— `cfn/04-ecs.yaml` 里的 `BedrockMantleAccess` 策略授权，无需 API key。
+- **GPT-5.x 弃用采样参数。** 把 `temperature`/`top_p`/`top_k` 放进 `additional_drop_params`，否则带默认值的客户端会 `400 ValidationException`。
+- 新 Bedrock 模型在你账户里**默认未开通** —— 先在对应区域的 Bedrock 控制台申请访问，否则调用返回 `403`。
+
+### 更稳的升级：蓝绿（可选）
+
+想在放量前做金丝雀，可以在独立 target group 上跑第二个 ECS service，用 header 规则（如 `X-Lane: blue`）路由过去。在待命 lane 拉起新版本，通过 header 验证，再翻转 ALB 默认动作。保留上一个 task definition，翻回 listener 即可 ~30s 回滚。（公开模板为保持简单只带单 lane；蓝绿是可叠加的运维模式。）
+
 ### 查看应用日志
 
 ```bash

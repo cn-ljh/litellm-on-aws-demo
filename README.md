@@ -510,6 +510,74 @@ aws bedrock list-inference-profiles --region <YOUR_REGION> --type SYSTEM_DEFINED
 
 ---
 
+## Updating Your Environment
+
+After the initial deploy, the two things you'll change most often are the **LiteLLM version** and the **model list**. Both are low-risk when done in the right order. The gateway loads `config/litellm-config.yaml` from S3 at container start, so a config change just needs a rolling restart.
+
+### Upgrade the LiteLLM version
+
+The running version is pinned by the container image tag (CloudFormation parameter `LiteLLMImage`). `deploy.sh` auto-detects the latest stable release, or you can pin one explicitly.
+
+```bash
+# 1. See the currently running version (check the ECS task definition image tag)
+aws ecs describe-task-definition --task-definition <PROJECT_NAME>-task \
+  --query 'taskDefinition.containerDefinitions[0].image' --output text --region <YOUR_REGION>
+
+# 2. Pin a target version and re-run deploy.sh (updates the ECS stack only)
+#    Tag naming: 1.84+ uses a bare tag "v1.95.0"; <= 1.83.x used "main-v1.83.7-stable".
+#    deploy.sh handles both. Omit LITELLM_VERSION to auto-detect the latest stable.
+LITELLM_VERSION=v1.95.0 ./deploy.sh
+
+# 3. Verify after rollout (ECS rolling replace is zero-downtime: minHealthy=100%, max=200%)
+curl -s https://<YOUR_ENDPOINT>/health/readiness   # -> {"status":"healthy","db":"connected"}
+```
+
+> **Check model-registry support before upgrading _to use a new model_.** A model only works once LiteLLM's price/context map knows it. Example: OpenAI GPT-5.6 landed in **v1.93.0** (absent in 1.92.0). Confirm with:
+> ```bash
+> curl -s "https://raw.githubusercontent.com/BerriAI/litellm/<TAG>/model_prices_and_context_window.json" \
+>   | python3 -c "import sys,json;d=json.load(sys.stdin);print([k for k in d if 'gpt-5.6' in k])"
+> ```
+
+> **Prisma migrations are one-way.** A new version may add DB tables/columns on first boot (forward-compatible: adds only, never drops). Rolling the *image* back is fine; the schema stays. Plan accordingly if one Aurora cluster is shared across versions.
+
+> **Keep `--num_workers 1`** on 0.5 vCPU tasks. LiteLLM 1.80+ silently crashes child workers with `>= 2` ([#18457](https://github.com/BerriAI/litellm/issues/18457)).
+
+### Add or change models
+
+Models live in `config/litellm-config.yaml`. Edit, sync to S3, force a rolling restart.
+
+```bash
+# 1. Edit config/litellm-config.yaml (add/remove a model_list entry)
+
+# 2. Upload to the config bucket (back up the current one first)
+BUCKET=<PROJECT_NAME>-config-<ACCOUNT_ID>
+aws s3 cp "s3://$BUCKET/litellm-config.yaml" "s3://$BUCKET/backups/litellm-config.$(date +%Y%m%d-%H%M%S).yaml" --region <YOUR_REGION>
+aws s3 cp config/litellm-config.yaml "s3://$BUCKET/litellm-config.yaml" --region <YOUR_REGION>
+
+# 3. Rolling restart so containers reload config from S3
+aws ecs update-service --cluster <PROJECT_NAME>-cluster --service <PROJECT_NAME>-service \
+  --force-new-deployment --region <YOUR_REGION>
+aws ecs wait services-stable --cluster <PROJECT_NAME>-cluster --services <PROJECT_NAME>-service --region <YOUR_REGION>
+
+# 4. Verify the new model is live
+curl -s https://<YOUR_ENDPOINT>/v1/models -H "Authorization: Bearer <MASTER_KEY>" \
+  | python3 -c "import sys,json;print([m['id'] for m in json.load(sys.stdin)['data']])"
+```
+
+**Bedrock model conventions used in this repo:**
+
+- **No hardcoded region.** Bedrock entries omit `aws_region_name`; region is inherited from the `AWS_REGION_NAME` env injected by the ECS task. Use the inference-profile prefix (`us.`/`eu.`/`apac.`) matching your region.
+- **Claude** uses `bedrock/us.anthropic.<model>` with IAM via the task role.
+- **GPT-5.6** uses `bedrock_mantle/openai.gpt-5.6-<sol|terra|luna>` (OpenAI Responses API on the `bedrock-mantle` endpoint). Auth is SigV4 via the task role — the `BedrockMantleAccess` policy in `cfn/04-ecs.yaml` grants it. No API key needed.
+- **GPT-5.x drops sampling params.** Put `temperature`, `top_p`, `top_k` in `additional_drop_params`, or clients sending defaults get `400 ValidationException`.
+- New Bedrock models are **not enabled by default** in your account — request access in the Bedrock console for your region first, or calls return `403`.
+
+### Safer upgrades: blue-green (optional)
+
+For a canary before promoting a version to all traffic, run a second ECS service on a separate target group and route to it with a header rule (e.g. `X-Lane: blue`). Bring the new version up on the standby lane, validate it via the header, then flip the ALB default action. Keep the previous task definition to roll back in ~30s by flipping the listener back. (The public template ships a single lane to stay simple; blue-green is an operational pattern you can layer on.)
+
+---
+
 ## MCP Gateway (Tavily + Exa + SearXNG + AgentCore Web Search)
 
 LiteLLM Proxy doubles as an **MCP Gateway** that exposes search tools (Tavily, Exa, self-hosted SearXNG, AgentCore Web Search) to all clients via a single endpoint. Clients no longer need their own search API keys.
