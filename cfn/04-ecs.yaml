@@ -267,6 +267,27 @@ Resources:
                   - bedrock:InvokeModel
                   - bedrock:InvokeModelWithResponseStream
                 Resource: "*"
+        # bedrock-mantle is a separate service namespace used by OpenAI GPT-5.6
+        # models (Responses API on the bedrock-mantle endpoint). The classic
+        # bedrock:InvokeModel actions above do NOT cover it, so GPT-5.6 calls
+        # would get AccessDenied without this statement. LiteLLM signs the
+        # request with SigV4 using this Task Role (no API key needed).
+        - PolicyName: BedrockMantleAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: BedrockMantleInference
+                Effect: Allow
+                Action:
+                  - bedrock-mantle:Get*
+                  - bedrock-mantle:List*
+                  - bedrock-mantle:CreateInference
+                Resource: "arn:aws:bedrock-mantle:*:*:project/*"
+              - Sid: BedrockMantleCallWithBearerToken
+                Effect: Allow
+                Action:
+                  - bedrock-mantle:CallWithBearerToken
+                Resource: "*"
         - PolicyName: S3ConfigAccess
           PolicyDocument:
             Version: "2012-10-17"

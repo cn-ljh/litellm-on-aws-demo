@@ -153,9 +153,11 @@ curl https://<YOUR_CLOUDFRONT_DOMAIN>/chat/completions \
 | Model Name | Provider | Model ID | Notes |
 |-----------|----------|----------|-------|
 | `claude-opus-5` | AWS Bedrock | `us.anthropic.claude-opus-5` | **Most capable** — 1M context, 128K output; adaptive thinking on by default. Rejects `temperature`/`top_p`/`top_k` (must be dropped) |
-| `claude-opus-4-8` | AWS Bedrock | `us.anthropic.claude-opus-4-8` | Most capable — 1M context, 128K max output, vision + prompt caching |
 | `claude-sonnet-4-6` | AWS Bedrock | `us.anthropic.claude-sonnet-4-6` | **Best value** |
 | `claude-haiku-4-5` | AWS Bedrock | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | Fastest & cheapest |
+| `gpt-5.6-sol` | AWS Bedrock (Mantle) | `bedrock_mantle/openai.gpt-5.6-sol` | OpenAI flagship — reasoning + agentic (coding/security/research). Responses API. us-east-1 / us-east-2 |
+| `gpt-5.6-terra` | AWS Bedrock (Mantle) | `bedrock_mantle/openai.gpt-5.6-terra` | Balanced, ~half Sol's cost. + us-west-2 |
+| `gpt-5.6-luna` | AWS Bedrock (Mantle) | `bedrock_mantle/openai.gpt-5.6-luna` | Fastest & cheapest, high-volume. + us-west-2 |
 | `gpt-4o` | OpenAI | `openai/gpt-4o` | Requires API key |
 | `gpt-4o-mini` | OpenAI | `openai/gpt-4o-mini` | Requires API key |
 | `gpt-4.1` | OpenAI | `openai/gpt-4.1` | Requires API key |
@@ -164,7 +166,9 @@ curl https://<YOUR_CLOUDFRONT_DOMAIN>/chat/completions \
 | `gemini-2.0-flash` | Google | `gemini/gemini-2.0-flash` | Requires API key |
 | `gemini-2.5-pro` | Google | `gemini/gemini-2.5-pro-preview-05-06` | Requires API key |
 
-Bedrock models use the ECS Task Role for IAM authentication — no API keys needed. Other providers require keys in Secrets Manager.
+All AWS Bedrock models (Claude **and** GPT-5.6) authenticate via the ECS Task Role — **no API keys needed**. GPT-5.6 runs on the `bedrock-mantle` endpoint (OpenAI Responses API); the Task Role includes a `BedrockMantleAccess` policy for it (see `cfn/04-ecs.yaml`). Other providers require keys in Secrets Manager.
+
+> **Region note:** Bedrock model IDs use the cross-region inference profile prefix (`us.`). The config does **not** hardcode a region — models inherit the deployment region from the injected `AWS_REGION_NAME`. Adjust the profile prefix (`eu.`/`apac.`) if deploying outside the US. GPT-5.6 Sol is only in us-east-1/us-east-2; Terra & Luna add us-west-2.
 
 Edit `config/litellm-config.yaml` to customize models before or after deployment.
 

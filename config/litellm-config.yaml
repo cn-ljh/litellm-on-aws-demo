@@ -1,5 +1,96 @@
 model_list:
-  # --- OpenAI ---
+  # ============================================================
+  # AWS Bedrock — Claude (IAM Task Role auth, no API key needed)
+  # ============================================================
+  # Region is inherited from the AWS_REGION_NAME env var injected by the
+  # ECS task (cfn/04-ecs.yaml sets it to the deployment region). Do NOT
+  # hardcode aws_region_name here — that would break non-us-east-1 deploys.
+  # All Bedrock model IDs use the cross-region inference profile prefix
+  # (us. / eu. / apac.) matching your deployment region.
+  #
+  # ⚠️ Bedrock model access must be enabled in your region first
+  #    (Bedrock console → Model access), or every call returns 403.
+
+  # Claude Opus 5 — most capable. 1M context / 128K output, adaptive thinking on.
+  # ⚠️ Rejects temperature/top_p/top_k (deprecated → ValidationException); must drop.
+  - model_name: claude-opus-5
+    litellm_params:
+      model: bedrock/us.anthropic.claude-opus-5
+      additional_drop_params:
+        - context_management
+        - temperature
+        - top_p
+        - top_k
+    model_info:
+      max_input_tokens: 1000000
+      max_output_tokens: 128000
+      supports_function_calling: true
+      supports_vision: true
+      supports_prompt_caching: true
+      supports_reasoning: true
+
+  # Claude Sonnet 4.6 — best price/performance. Recommended default.
+  - model_name: claude-sonnet-4-6
+    litellm_params:
+      model: bedrock/us.anthropic.claude-sonnet-4-6
+      additional_drop_params:
+        - context_management
+
+  # Claude Haiku 4.5 — fastest & cheapest.
+  - model_name: claude-haiku-4-5
+    litellm_params:
+      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      additional_drop_params:
+        - context_management
+
+  # ============================================================
+  # AWS Bedrock — OpenAI GPT-5.6 (Bedrock Mantle, IAM Task Role auth)
+  # ============================================================
+  # GPT-5.6 runs on the bedrock-mantle endpoint via the OpenAI Responses API
+  # (base https://bedrock-mantle.<region>.api.aws, path /openai/v1/responses).
+  # LiteLLM's bedrock_mantle provider uses a Bearer token if present, else
+  # falls back to AWS SigV4 (service "bedrock") over the standard credential
+  # chain — i.e. the ECS Task Role. No API key needed.
+  #
+  # ⚠️ The Task Role needs bedrock-mantle permissions (see cfn/04-ecs.yaml
+  #    BedrockMantleAccess statement); the classic bedrock:InvokeModel does
+  #    NOT cover the bedrock-mantle namespace.
+  # ⚠️ GPT-5.x deprecate temperature/top_p/top_k — must drop or callers 400.
+  # Region availability: Sol = us-east-1/us-east-2; Terra & Luna add us-west-2.
+  #
+  # Sol   — flagship reasoning + agentic (coding, security, research).
+  # Terra — balanced, ~half the cost of Sol, general production workloads.
+  # Luna  — fastest & cheapest, high-volume / latency-sensitive tasks.
+  - model_name: gpt-5.6-sol
+    litellm_params:
+      model: bedrock_mantle/openai.gpt-5.6-sol
+      additional_drop_params:
+        - context_management
+        - temperature
+        - top_p
+        - top_k
+
+  - model_name: gpt-5.6-terra
+    litellm_params:
+      model: bedrock_mantle/openai.gpt-5.6-terra
+      additional_drop_params:
+        - context_management
+        - temperature
+        - top_p
+        - top_k
+
+  - model_name: gpt-5.6-luna
+    litellm_params:
+      model: bedrock_mantle/openai.gpt-5.6-luna
+      additional_drop_params:
+        - context_management
+        - temperature
+        - top_p
+        - top_k
+
+  # ============================================================
+  # OpenAI API (optional — requires OPENAI_API_KEY in Secrets Manager)
+  # ============================================================
   - model_name: gpt-4o
     litellm_params:
       model: openai/gpt-4o
@@ -15,7 +106,9 @@ model_list:
       model: openai/gpt-4.1
       api_key: os.environ/OPENAI_API_KEY
 
-  # --- Anthropic API ---
+  # ============================================================
+  # Anthropic API (optional — requires ANTHROPIC_API_KEY)
+  # ============================================================
   - model_name: claude-sonnet-4-20250514
     litellm_params:
       model: anthropic/claude-sonnet-4-20250514
@@ -30,158 +123,9 @@ model_list:
       additional_drop_params:
         - context_management
 
-  # --- AWS Bedrock (IAM task role, no API key needed) ---
-  # Claude Opus 5 — 2026-07-24 GA on Bedrock，Anthropic 当前最强 Opus。2026-07-26 接入。
-  # inference profile us.anthropic.claude-opus-5 已 ACTIVE(us-east-1)，global. 形态实测也可用。
-  # 1M 上下文 / 128K max output / adaptive thinking 默认开（可关但 effort 封顶 high）。
-  # ⚠️ 关键：temperature / top_p / top_k 均被模型拒绝（deprecated → ValidationException），
-  #    必须全部 drop，否则 Claude Code 等带默认 temperature 的客户端会 400。
-  - model_name: claude-opus-5
-    litellm_params:
-      model: bedrock/us.anthropic.claude-opus-5
-      aws_region_name: us-east-1
-      additional_drop_params:
-        - context_management
-        - temperature
-        - top_p
-        - top_k
-    # LiteLLM cost map 暂未收录 Opus 5，手工注入（按 Opus 线 $15/$75 占位，待官方公布校正）
-    model_info:
-      max_input_tokens: 1000000
-      max_output_tokens: 128000
-      input_cost_per_token: 0.000015
-      output_cost_per_token: 0.000075
-      cache_creation_input_token_cost: 0.00001875
-      cache_read_input_token_cost: 0.0000015
-      supports_function_calling: true
-      supports_vision: true
-      supports_prompt_caching: true
-      supports_reasoning: true
-
-  # Claude Opus 4.8 — 2026-05-28 GA on Bedrock；2026-07-25 校正接入。
-  # inference profile us.anthropic.claude-opus-4-8 已 ACTIVE(us-east-1)，实测 invoke OK。
-  # 支持 1M 上下文 / 128K max output / vision / prompt caching / reasoning。
-  - model_name: claude-opus-4-8
-    litellm_params:
-      model: bedrock/us.anthropic.claude-opus-4-8
-      aws_region_name: us-east-1
-      additional_drop_params:
-        - context_management
-    # LiteLLM cost map 暂未收录 4.8，手工注入 context window + 定价（按 Opus 线 $15/$75 占位，待官方校正）
-    model_info:
-      max_input_tokens: 1000000
-      max_output_tokens: 128000
-      input_cost_per_token: 0.000015
-      output_cost_per_token: 0.000075
-      cache_creation_input_token_cost: 0.00001875
-      cache_read_input_token_cost: 0.0000015
-      supports_function_calling: true
-      supports_vision: true
-      supports_prompt_caching: true
-
-  - model_name: claude-opus-4-7
-    litellm_params:
-      model: bedrock/us.anthropic.claude-opus-4-7
-      aws_region_name: us-east-1
-      additional_drop_params:
-        - context_management
-    # LiteLLM 1.83.7-stable 的 model_prices 里还没有 4.7 条目，
-    # 手工注入 context window 和定价（按 Opus 4.6 同价占位，待 AWS 官方公布再校正）
-    model_info:
-      max_input_tokens: 200000
-      max_output_tokens: 32000
-      input_cost_per_token: 0.000015
-      output_cost_per_token: 0.000075
-      supports_function_calling: true
-      supports_vision: true
-      supports_prompt_caching: true
-
-  - model_name: claude-opus-4-6
-    litellm_params:
-      model: bedrock/us.anthropic.claude-opus-4-6-v1
-      aws_region_name: us-east-1
-      additional_drop_params:
-        - context_management
-
-  - model_name: claude-sonnet-4-6
-    litellm_params:
-      model: bedrock/us.anthropic.claude-sonnet-4-6
-      aws_region_name: us-east-1
-      additional_drop_params:
-        - context_management
-
-  - model_name: claude-sonnet-5
-    litellm_params:
-      model: bedrock/us.anthropic.claude-sonnet-5
-      aws_region_name: us-east-1
-      additional_drop_params:
-        - context_management
-
-  - model_name: claude-haiku-4-5
-    litellm_params:
-      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
-      aws_region_name: us-east-1
-      additional_drop_params:
-        - context_management
-
-  # Claude Fable 5 (Mythos-class) — 2026-06-10 接入
-  # 关键: aws_region_name 必须是 Fable 服务区(us-east-1)；该区账户数据保留已设 provider_data_share。
-  # 2026-07-01: global profile 报 InternalServerException（us-east-1/us-west-2 均挂），切换到 us. 区域 profile（实测可用）。
-  # adaptive thinking 常开不可关；temperature 必须=1.0 或不设。
-  - model_name: claude-fable-5
-    litellm_params:
-      model: bedrock/us.anthropic.claude-fable-5
-      aws_region_name: us-east-1
-      input_cost_per_token: 0.00001                      # $10  / 1M
-      output_cost_per_token: 0.00005                     # $50  / 1M
-      cache_creation_input_token_cost: 0.0000125         # $12.5/ 1M (5m 写)
-      cache_read_input_token_cost: 0.000001              # $1   / 1M (读)
-      cache_creation_input_token_cost_above_1hr: 0.00002 # $20  / 1M (1h 写)
-      additional_drop_params:
-        - context_management
-    model_info:
-      supports_prompt_caching: true
-      max_input_tokens: 1000000                          # Fable 支持 1M 上下文
-
-  # --- AWS Bedrock Mantle (OpenAI GPT-5.6) ---
-  # 2026-08-05 接入。三个型号走 bedrock-mantle 端点 + Responses API（/openai/v1/responses）。
-  # base_url: https://bedrock-mantle.<region>.api.aws；region=us-east-1（网关所在区，三型号都可用）。
-  # 认证：litellm bedrock_mantle provider 优先 Bearer token，缺失则回落 AWS SigV4（service=bedrock）
-  #      走 IAM 任务角色凭证链——我们用 SigV4，无需长期 key。
-  #      任务角色已加 BedrockMantleAccess 内联策略（bedrock-mantle:CreateInference / CallWithBearerToken）。
-  # ⚠️ GPT-5.x 系列弃用 temperature/top_p/top_k → 必须 drop，否则 400 ValidationException。
-  # 上下文 272K；支持 reasoning effort none/low/medium/high/xhigh/max；支持显式 prompt caching（90% 折扣/30min）。
-  - model_name: gpt-5.6-sol
-    litellm_params:
-      model: bedrock_mantle/openai.gpt-5.6-sol
-      aws_region_name: us-east-1
-      additional_drop_params:
-        - context_management
-        - temperature
-        - top_p
-        - top_k
-
-  - model_name: gpt-5.6-terra
-    litellm_params:
-      model: bedrock_mantle/openai.gpt-5.6-terra
-      aws_region_name: us-east-1
-      additional_drop_params:
-        - context_management
-        - temperature
-        - top_p
-        - top_k
-
-  - model_name: gpt-5.6-luna
-    litellm_params:
-      model: bedrock_mantle/openai.gpt-5.6-luna
-      aws_region_name: us-east-1
-      additional_drop_params:
-        - context_management
-        - temperature
-        - top_p
-        - top_k
-
-  # --- Google Gemini ---
+  # ============================================================
+  # Google Gemini (optional — requires GEMINI_API_KEY)
+  # ============================================================
   - model_name: gemini-2.0-flash
     litellm_params:
       model: gemini/gemini-2.0-flash
@@ -197,29 +141,10 @@ general_settings:
   database_url: os.environ/DATABASE_URL
   store_model_in_db: true
 
-# --- MCP (Model Context Protocol) Servers ---
-# 通过 LiteLLM Proxy 统一暴露搜索能力给所有客户端，由 LiteLLM 转发请求并附带认证 header。
-# 客户端调用方式：
-#   POST /mcp/   (JSON-RPC, MCP 协议) ↓
-#   或在 /v1/responses tools 数组里指定：
-#     { "type": "mcp", "server_label": "litellm", "server_url": "litellm_proxy", "require_approval": "never" }
-# 详见 https://docs.litellm.ai/docs/mcp
-#
-# ⚠️ 重要：MCP server 配置走 DB（admin REST API POST /v1/mcp/server），不在 yaml 里写
-#    原因：1.85.2 的 yaml-only mcp_servers 鉴权链路不完善，admin 调 tools/list 返回空。
-#    DB 路径 + allow_all_keys=true 是当前唯一可靠方案。
-#
-# 部署后必须运行 scripts/sync-mcp-servers.sh 一次（或 Admin UI 手动）来同步 server 入库。
-# 真实 API key 从 Secrets Manager 注入到容器 env (TAVILY_API_KEY / EXA_API_KEY)，
-# sync 脚本读取这两个 env 调 admin API 创建 server。
-
 litellm_settings:
   callbacks: ["bedrock_ctx_stripper.bedrock_ctx_stripper_instance"]
   num_retries: 3
-  # 总请求超时（秒）：3 分钟兜底，避免客户端（Claude Code）卡住等 10 分钟
   request_timeout: 180
-  # 单次上游调用超时（秒）：Bedrock Opus 偶发 p99=90s+ 慢请求，120s 内拿不到就主动断开，
-  # 让 num_retries 快速重试——Bedrock 慢是偶发的，重试大概率命中正常 p50=6s 响应
   timeout: 120
   set_verbose: false
   drop_params: true
