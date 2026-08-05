@@ -143,6 +143,44 @@ model_list:
       supports_prompt_caching: true
       max_input_tokens: 1000000                          # Fable 支持 1M 上下文
 
+  # --- AWS Bedrock Mantle (OpenAI GPT-5.6) ---
+  # 2026-08-05 接入。三个型号走 bedrock-mantle 端点 + Responses API（/openai/v1/responses）。
+  # base_url: https://bedrock-mantle.<region>.api.aws；region=us-east-1（网关所在区，三型号都可用）。
+  # 认证：litellm bedrock_mantle provider 优先 Bearer token，缺失则回落 AWS SigV4（service=bedrock）
+  #      走 IAM 任务角色凭证链——我们用 SigV4，无需长期 key。
+  #      任务角色已加 BedrockMantleAccess 内联策略（bedrock-mantle:CreateInference / CallWithBearerToken）。
+  # ⚠️ GPT-5.x 系列弃用 temperature/top_p/top_k → 必须 drop，否则 400 ValidationException。
+  # 上下文 272K；支持 reasoning effort none/low/medium/high/xhigh/max；支持显式 prompt caching（90% 折扣/30min）。
+  - model_name: gpt-5.6-sol
+    litellm_params:
+      model: bedrock_mantle/openai.gpt-5.6-sol
+      aws_region_name: us-east-1
+      additional_drop_params:
+        - context_management
+        - temperature
+        - top_p
+        - top_k
+
+  - model_name: gpt-5.6-terra
+    litellm_params:
+      model: bedrock_mantle/openai.gpt-5.6-terra
+      aws_region_name: us-east-1
+      additional_drop_params:
+        - context_management
+        - temperature
+        - top_p
+        - top_k
+
+  - model_name: gpt-5.6-luna
+    litellm_params:
+      model: bedrock_mantle/openai.gpt-5.6-luna
+      aws_region_name: us-east-1
+      additional_drop_params:
+        - context_management
+        - temperature
+        - top_p
+        - top_k
+
   # --- Google Gemini ---
   - model_name: gemini-2.0-flash
     litellm_params:
