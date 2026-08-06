@@ -201,18 +201,16 @@ aws sts get-caller-identity
 aws configure get region
 ```
 
-#### Bedrock Model Access (Important)
+#### Bedrock Model Access
 
-Bedrock models are **not enabled by default**. You must request access before deployment:
+Since the [Simplified model access](https://aws.amazon.com/blogs/security/simplified-amazon-bedrock-model-access/) change (Oct 2025), Amazon Bedrock **automatically grants access to serverless models in your Region** — you no longer need to manually enable each model in the console. The models used here work out of the box after deployment.
 
-1. Go to [Bedrock Model Access](https://console.aws.amazon.com/bedrock/home#/modelaccess) in your target region
-2. Click **Manage model access** → enable:
-   - ✅ Anthropic Claude Opus 4.8
-   - ✅ Anthropic Claude Sonnet 4.6
-   - ✅ Anthropic Claude Haiku 4.5
-3. Wait for **Access granted** status (usually a few minutes)
+Two exceptions to be aware of:
 
-> ⚠️ **Skipping this step will cause 403 errors for all Bedrock model calls.**
+- **Anthropic (Claude) models:** first-time users may be prompted to submit use-case details once before the models become available.
+- **AWS Marketplace models:** models offered through AWS Marketplace need the relevant Marketplace IAM permissions on the calling principal.
+
+> Access is governed by IAM (the ECS task role's `bedrock:InvokeModel*` and `bedrock-mantle:*` permissions, already granted by `cfn/04-ecs.yaml`). If a call returns `403`, check IAM/SCP first, then the Anthropic use-case / Marketplace prerequisites above.
 
 #### Third-party API Keys (Optional)
 
@@ -570,7 +568,7 @@ curl -s https://<YOUR_ENDPOINT>/v1/models -H "Authorization: Bearer <MASTER_KEY>
 - **Claude** uses `bedrock/us.anthropic.<model>` with IAM via the task role.
 - **GPT-5.6** uses `bedrock_mantle/openai.gpt-5.6-<sol|terra|luna>` (OpenAI Responses API on the `bedrock-mantle` endpoint). Auth is SigV4 via the task role — the `BedrockMantleAccess` policy in `cfn/04-ecs.yaml` grants it. No API key needed.
 - **GPT-5.x drops sampling params.** Put `temperature`, `top_p`, `top_k` in `additional_drop_params`, or clients sending defaults get `400 ValidationException`.
-- New Bedrock models are **not enabled by default** in your account — request access in the Bedrock console for your region first, or calls return `403`.
+- Bedrock serverless models are **granted automatically** in your Region (see [Simplified model access](https://aws.amazon.com/blogs/security/simplified-amazon-bedrock-model-access/), Oct 2025) — no manual console enablement needed. Access is governed by the task role's IAM permissions. First-time Anthropic use may require a one-time use-case submission; Marketplace models need Marketplace IAM permissions.
 
 ### Safer upgrades: blue-green (optional)
 
@@ -1057,7 +1055,7 @@ curl -X POST https://<CLOUDFRONT_DOMAIN>/v1/messages \
 <details>
 <summary><b>Bedrock returns 403 Forbidden</b></summary>
 
-Model access not enabled. Go to [Bedrock Model Access](https://console.aws.amazon.com/bedrock/home#/modelaccess) and request access.
+Since [Simplified model access](https://aws.amazon.com/blogs/security/simplified-amazon-bedrock-model-access/) (Oct 2025), serverless models are granted automatically — a 403 is almost always an **IAM/SCP** issue, not a missing console enablement. Check that the caller's role has `bedrock:InvokeModel*` (and `bedrock-mantle:*` for GPT-5.6), and that no SCP denies it. Two remaining prerequisites: first-time **Anthropic** use may need a one-time use-case submission, and **AWS Marketplace** models need Marketplace IAM permissions.
 </details>
 
 <details>

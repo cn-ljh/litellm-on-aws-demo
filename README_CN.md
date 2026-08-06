@@ -44,19 +44,16 @@ aws sts get-caller-identity
 aws configure get region
 ```
 
-### 3. Bedrock 模型访问（重要）
+### 3. Bedrock 模型访问
 
-Bedrock 模型默认**未开通**，需要在控制台手动申请：
+自 [简化模型访问](https://aws.amazon.com/blogs/security/simplified-amazon-bedrock-model-access/)（2025 年 10 月上线）起，Amazon Bedrock **自动开通所在区域的 serverless 模型**，不再需要在控制台逐个手动 enable。本仓库用到的模型部署后开箱即用。
 
-1. 登录 [AWS 控制台](https://console.aws.amazon.com/bedrock/home#/modelaccess)
-2. 选择部署目标区域（如 `us-east-1`）
-3. 点击 **Manage model access** → 勾选以下模型 → **Save changes**
-   - ✅ Anthropic Claude Opus 4.8
-   - ✅ Anthropic Claude Sonnet 4.6
-   - ✅ Anthropic Claude Haiku 4.5
-4. 等待状态变为 **Access granted**（通常几分钟内）
+两个需注意的例外：
 
-> ⚠️ **如果跳过这一步，Bedrock 模型的 API 调用会返回 403 错误。**
+- **Anthropic（Claude）模型**：首次使用可能会提示提交一次 use case 详情，之后即可访问。
+- **AWS Marketplace 模型**：通过 Marketplace 提供的模型，调用方需具备相应的 Marketplace IAM 权限。
+
+> 访问权限由 IAM 控制（ECS 任务角色的 `bedrock:InvokeModel*` 与 `bedrock-mantle:*`，已由 `cfn/04-ecs.yaml` 授予）。若调用返回 `403`，先查 IAM/SCP，再看上面的 Anthropic use case / Marketplace 前提。
 
 ### 4. 第三方 API Key（可选）
 
@@ -595,7 +592,7 @@ curl -s https://<YOUR_ENDPOINT>/v1/models -H "Authorization: Bearer <MASTER_KEY>
 - **Claude** 用 `bedrock/us.anthropic.<model>`，走任务角色 IAM。
 - **GPT-5.6** 用 `bedrock_mantle/openai.gpt-5.6-<sol|terra|luna>`（走 `bedrock-mantle` 端点的 OpenAI Responses API）。认证是任务角色 SigV4 —— `cfn/04-ecs.yaml` 里的 `BedrockMantleAccess` 策略授权，无需 API key。
 - **GPT-5.x 弃用采样参数。** 把 `temperature`/`top_p`/`top_k` 放进 `additional_drop_params`，否则带默认值的客户端会 `400 ValidationException`。
-- 新 Bedrock 模型在你账户里**默认未开通** —— 先在对应区域的 Bedrock 控制台申请访问，否则调用返回 `403`。
+- Bedrock serverless 模型在你所在区域**自动开通**（见 [简化模型访问](https://aws.amazon.com/blogs/security/simplified-amazon-bedrock-model-access/)，2025 年 10 月），无需在控制台手动 enable。访问由任务角色的 IAM 权限控制。首次使用 Anthropic 可能需一次性提交 use case；Marketplace 模型需 Marketplace IAM 权限。
 
 ### 更稳的升级：蓝绿（可选）
 
@@ -736,7 +733,7 @@ aws rds describe-db-engine-versions --engine aurora-postgresql \
 
 ### Q: Bedrock 返回 403 Forbidden
 
-Bedrock 模型访问未开通。前往 [Bedrock 控制台](https://console.aws.amazon.com/bedrock/home#/modelaccess) 申请模型访问权限。
+自 [简化模型访问](https://aws.amazon.com/blogs/security/simplified-amazon-bedrock-model-access/)（2025 年 10 月）起，serverless 模型自动开通 —— 403 几乎都是 **IAM/SCP** 问题，而非缺少控制台开通。确认调用方角色有 `bedrock:InvokeModel*`（GPT-5.6 还需 `bedrock-mantle:*`），且无 SCP 拒绝。两个残留前提：首次使用 **Anthropic** 可能需一次性提交 use case；**AWS Marketplace** 模型需 Marketplace IAM 权限。
 
 ### Q: 通过 CloudFront 调用 POST /v1/messages 偶发 504（OriginCommError）
 
