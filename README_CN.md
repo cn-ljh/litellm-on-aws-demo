@@ -402,6 +402,43 @@ export ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-4-8"
 
 ---
 
+## 配合 Codex CLI 使用
+
+[Codex CLI](https://github.com/openai/codex) 可以把 LiteLLM 网关作为自定义 provider 使用 —— 无需 OpenAI 账号、无需 `codex login`。它走 **Responses API**，正好契合这里的 Bedrock GPT-5.6 模型。
+
+写入 `~/.codex/config.toml`：
+
+```toml
+model = "gpt-5.6-terra"        # 网关暴露的任意模型（见 /v1/models）
+model_provider = "litellm"
+
+[model_providers.litellm]
+name = "LiteLLM"
+base_url = "https://<YOUR_ENDPOINT>/v1"   # 必须以 /v1 结尾
+env_key = "LITELLM_API_KEY"                # 存放 key 的环境变量名
+wire_api = "responses"
+```
+
+key 放环境变量，不要写进配置文件：
+
+```bash
+export LITELLM_API_KEY="sk-xxx"           # 你的 LiteLLM Virtual Key
+```
+
+验证并运行：
+
+```bash
+codex doctor                              # 结尾应为 0 warn / 0 fail
+codex -m gpt-5.6-sol "say hi"             # 按需临时指定模型，或改 config.toml
+```
+
+> **注意**
+> - `wire_api` 必须是 `responses`（Codex 已弃用 Chat Completions，`chat` 在 v0.138+ 会崩溃）。本网关支持 —— GPT-5.6 走的就是 Responses API。
+> - `model_provider` 不能用保留名（`openai`/`ollama`/`lmstudio`），要自定义一个。
+> - 查可用模型 ID：`curl -s -H "Authorization: Bearer $LITELLM_API_KEY" https://<YOUR_ENDPOINT>/v1/models`。忽略 `owned_by` —— LiteLLM 会把所有模型标成 `openai`，厂商看 `id` 本身。
+
+---
+
 ## 用户和 Key 管理
 
 ### 创建用户 Key

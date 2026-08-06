@@ -337,6 +337,43 @@ This routes all Claude Code requests through your LiteLLM gateway, using Bedrock
 
 ---
 
+## Use with Codex CLI
+
+[Codex CLI](https://github.com/openai/codex) can use your LiteLLM gateway as a custom provider — no OpenAI account or `codex login` needed. It talks the **Responses API**, which matches the Bedrock GPT-5.6 models here.
+
+Add to `~/.codex/config.toml`:
+
+```toml
+model = "gpt-5.6-terra"        # any model your gateway exposes (see /v1/models)
+model_provider = "litellm"
+
+[model_providers.litellm]
+name = "LiteLLM"
+base_url = "https://<YOUR_ENDPOINT>/v1"   # must end with /v1
+env_key = "LITELLM_API_KEY"                # name of the env var holding your key
+wire_api = "responses"
+```
+
+Put the key in that env var (don't hardcode it in the file):
+
+```bash
+export LITELLM_API_KEY="sk-xxx"           # your LiteLLM Virtual Key
+```
+
+Verify and run:
+
+```bash
+codex doctor                              # should show 0 warn / 0 fail
+codex -m gpt-5.6-sol "say hi"             # switch model per-run, or edit config.toml
+```
+
+> **Notes**
+> - `wire_api` must be `responses` (Codex dropped Chat Completions; `chat` crashes on v0.138+). Your gateway supports it — GPT-5.6 runs on the Responses API.
+> - `model_provider` can't be a reserved name (`openai`/`ollama`/`lmstudio`); define your own.
+> - Query available model IDs with `curl -s -H "Authorization: Bearer $LITELLM_API_KEY" https://<YOUR_ENDPOINT>/v1/models`. Ignore `owned_by` — LiteLLM tags everything `openai`; judge the provider by the `id`.
+
+---
+
 ## User & Key Management
 
 ### Create a Virtual Key
