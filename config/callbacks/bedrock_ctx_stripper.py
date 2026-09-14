@@ -70,6 +70,14 @@ class BedrockContextManagementStripper(CustomLogger):
 
     ROUTES_TO_STRIP = {"anthropic_messages", "completion", "acompletion"}
 
+    # Concern 3 runs on the Responses API routes instead (Astra / mantle).
+    # NOTE: the pre_call_hook receives litellm's CallTypes value, which for
+    # POST /v1/responses is "aresponses" (sync alias "responses").  Neither is
+    # in ROUTES_TO_STRIP, i.e. before 2026-09-14 this hook never fired at all
+    # for gpt-6-astra -- adding the drop logic without this second route set
+    # would have been a silent no-op.
+    RESPONSES_ROUTES = {"aresponses", "responses"}
+
     # Kill switch + blast-radius controls (env, no code deploy needed to change).
     #   CACHE_TTL_PROMOTE_ENABLED=true       -> enable (DEFAULT OFF, see below)
     #   CACHE_TTL_PROMOTE_MODELS=a,b         -> only promote these model aliases
@@ -84,6 +92,26 @@ class BedrockContextManagementStripper(CustomLogger):
     PROMOTE_ENABLED = os.getenv("CACHE_TTL_PROMOTE_ENABLED", "false").lower() == "true"
     PROMOTE_MODELS = _parse_csv_env("CACHE_TTL_PROMOTE_MODELS", "claude-fable-5")
     PROMOTE_TARGET_TTL = os.getenv("CACHE_TTL_PROMOTE_TARGET", "1h")
+
+    # --- Concern 3: strip reasoning.summary on Bedrock Mantle (2026-09-14) ---
+    #   MANTLE_DROP_REASONING_SUMMARY_ENABLED=true -> enable (DEFAULT OFF)
+    #   MANTLE_DROP_REASONING_SUMMARY_MODELS=a,b   -> substring allowlist
+    #
+    # Why: Bedrock Mantle rejects `reasoning.summary` for openai.gpt-6-astra:
+    #   500 unsupported_parameter -- "'reasoning.summary' is not supported with
+    #   the 'openai.gpt-6-astra' model."
+    # Verified 2026-09-14 against prod: summary="detailed" and "concise" both
+    # 500; summary="auto" passes only because litellm never forwards "auto";
+    # Astra returns no summary text in any case, so dropping loses nothing.
+    # litellm's own `drop_params: true` does not help -- `reasoning` IS a
+    # supported Responses param, so _check_valid_arg passes it through whole and
+    # the nested key is never inspected.
+    # Codex CLI can set `model_reasoning_summary = "none"` client-side; the
+    # ChatGPT desktop app hardcodes summary="auto"/"detailed" with no opt-out,
+    # which is why this has to be fixed proxy-side.
+    # Same default-OFF rationale as concern 2 (shared S3 object, per-lane env).
+    DROP_SUMMARY_ENABLED = os.getenv("MANTLE_DROP_REASONING_SUMMARY_ENABLED", "false").lower() == "true"
+    DROP_SUMMARY_MODELS = _parse_csv_env("MANTLE_DROP_REASONING_SUMMARY_MODELS", "astra")
 
     # ---------- concern 2 helpers ----------
 
@@ -141,6 +169,31 @@ class BedrockContextManagementStripper(CustomLogger):
 
         return changed
 
+    # ---------- concern 3 helpers ----------
+
+    def _summary_model_in_scope(self, model: str) -> bool:
+        if not self.DROP_SUMMARY_MODELS:
+            return True
+        return any(m in model for m in self.DROP_SUMMARY_MODELS)
+
+    def _drop_reasoning_summary(self, data: Dict[str, Any]) -> int:
+        """Remove `reasoning.summary`. Returns 1 if the request was changed.
+
+        Only the nested `summary` key is touched -- `effort` is preserved, since
+        Astra supports it and it materially changes output quality.  If summary
+        was the only key, `reasoning` itself is dropped so we never send an
+        empty object (Mantle 400s on `reasoning: {}`).
+        """
+        reasoning = data.get("reasoning")
+        if not isinstance(reasoning, dict):
+            return 0
+        if "summary" not in reasoning:
+            return 0
+        reasoning.pop("summary", None)
+        if not reasoning:
+            data.pop("reasoning", None)
+        return 1
+
     # ---------- hook ----------
 
     async def async_pre_call_hook(
@@ -150,10 +203,26 @@ class BedrockContextManagementStripper(CustomLogger):
         data: dict,
         call_type: CallTypesLiteral,
     ) -> Optional[dict]:
-        if call_type not in self.ROUTES_TO_STRIP:
+        model = (data or {}).get("model", "")
+
+        # --- concern 3: reasoning.summary on the Responses API routes ---
+        if call_type in self.RESPONSES_ROUTES:
+            if self.DROP_SUMMARY_ENABLED and self._summary_model_in_scope(model):
+                try:
+                    if self._drop_reasoning_summary(data):
+                        logger.info(
+                            "[mantle_summary_stripper] dropped reasoning.summary on %s (model=%s)",
+                            call_type, model
+                        )
+                except Exception:  # never let a compat shim break a request
+                    logger.exception(
+                        "[mantle_summary_stripper] failed on %s (model=%s); passing request through",
+                        call_type, model
+                    )
             return data
 
-        model = (data or {}).get("model", "")
+        if call_type not in self.ROUTES_TO_STRIP:
+            return data
 
         # --- concern 1: context_management ---
         # Only strip when the upstream is a Bedrock route.

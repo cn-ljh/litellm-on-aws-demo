@@ -8,6 +8,10 @@ import sys
 import types
 
 os.environ.setdefault("CACHE_TTL_PROMOTE_MODELS", "claude-fable-5")
+# The hook defaults to OFF (enablement lives in the ECS task definition env so
+# it can be canaried per lane). Without this the whole suite fails with
+# KeyError: 'ttl' -- as it did when first committed on 2026-09-10.
+os.environ.setdefault("CACHE_TTL_PROMOTE_ENABLED", "true")
 
 # ---- stub litellm so the module imports standalone ----
 def _stub(name, **attrs):

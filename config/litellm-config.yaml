@@ -89,6 +89,80 @@ model_list:
         - top_k
 
   # ============================================================
+  # AWS Bedrock — OpenAI GPT-6 Astra (Bedrock Mantle, native Responses API)
+  # ============================================================
+  # ⚠️ Unlike GPT-5.6, Astra's mantle endpoint exists ONLY in us-west-2, so the
+  #    region IS pinned here on purpose (it cannot inherit AWS_REGION_NAME).
+  #    A gateway deployed elsewhere still reaches Astra cross-region.
+  #
+  # 🔴 The three model_info flags below are what actually enable the native
+  #    /v1/responses path. LiteLLM's mantle_supports_responses() is purely
+  #    data-driven: it reads supported_endpoints off the model cost map, and
+  #    releases up to 1.100.1 have no gpt-6 entry at all -> the gate returns
+  #    False and the request is silently downgraded to a chat/completions
+  #    emulation, which then fails for function tools. Overriding via
+  #    model_info is the documented path ("onboarding a model is a JSON
+  #    change, never a code change"). Drop these three once the upstream cost
+  #    map ships an Astra entry (present in 1.102.0rc1).
+  #
+  # ⚠️ reasoning.summary: Mantle only accepts "auto" (or absent) for Astra;
+  #    "detailed"/"concise" return 500 unsupported_parameter. Clients that
+  #    hardcode it (ChatGPT desktop app) need the callback stripper below —
+  #    drop_params does NOT help, because `reasoning` itself is a valid
+  #    Responses param and its nested keys are never inspected.
+  #    Codex CLI can instead set model_reasoning_summary = "auto"|"none".
+  #
+  # ⚠️ Server-side computer use is NOT reachable through LiteLLM: the mantle
+  #    tool-type allowlist is a hardcoded frozenset and `computer` /
+  #    `apply_patch` are silently dropped (still true in 1.102.0rc1, which
+  #    only added `web_search`). Needs a patched image, not a config change.
+  - model_name: gpt-6-astra
+    litellm_params:
+      model: bedrock_mantle/openai.gpt-6-astra
+      aws_region_name: us-west-2
+      additional_drop_params:
+        - context_management
+        - temperature
+        - top_p
+        - top_k
+    model_info:
+      supported_endpoints: ["/v1/responses"]
+      use_openai_responses_path: true
+      mode: responses
+      max_input_tokens: 1050000
+      max_output_tokens: 128000
+      input_cost_per_token: 0.000011
+      output_cost_per_token: 0.000055
+      cache_read_input_token_cost: 0.0000011
+      supports_prompt_caching: true
+      supports_function_calling: true
+      supports_reasoning: true
+      supports_vision: true
+
+  # Fallback channel via bedrock-runtime Converse (keep it).
+  # Use when a LiteLLM version drops tool types on the mantle path. Plain
+  # function calling / vision / max_tokens limiting all work here; server-side
+  # computer use does not. In-Region model IDs are unsupported — a cross-region
+  # inference profile (us. / global.) is required, and the explicit `converse/`
+  # prefix stops LiteLLM from falling back to InvokeModel on a new model id.
+  - model_name: gpt-6-astra-runtime
+    litellm_params:
+      model: bedrock/converse/global.openai.gpt-6-astra
+      additional_drop_params:
+        - context_management
+        - temperature
+        - top_p
+        - top_k
+    model_info:
+      max_input_tokens: 1050000
+      max_output_tokens: 128000
+      input_cost_per_token: 0.00001
+      output_cost_per_token: 0.00005
+      cache_read_input_token_cost: 0.000001
+      supports_function_calling: true
+      supports_vision: true
+
+  # ============================================================
   # OpenAI API (optional — requires OPENAI_API_KEY in Secrets Manager)
   # ============================================================
   - model_name: gpt-4o
