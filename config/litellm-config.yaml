@@ -211,6 +211,79 @@ model_list:
       supports_function_calling: true
       supports_vision: true
 
+  # GPT-6.x family via bedrock-runtime Converse, US Geo CRIS profile (us.).
+  # Pricing = official Bedrock model card, US CRIS tier (incl. 10% premium);
+  # not yet in the LiteLLM cost map, so it is injected via model_info.
+  # gpt-6.1-sol: runtime offers only the us. profile at launch (no global.).
+  - model_name: gpt-6.1-sol
+    litellm_params:
+      model: bedrock/converse/us.openai.gpt-6.1-sol
+      additional_drop_params:
+        - context_management
+        - temperature
+        - top_p
+        - top_k
+    model_info:
+      max_input_tokens: 1000000
+      max_output_tokens: 131072
+      input_cost_per_token: 0.0000022
+      input_cost_per_token_above_272k_tokens: 0.0000044
+      output_cost_per_token: 0.000011
+      output_cost_per_token_above_272k_tokens: 0.0000165
+      cache_creation_input_token_cost: 0.00000275
+      cache_creation_input_token_cost_above_272k_tokens: 0.0000055
+      cache_read_input_token_cost: 0.00000011
+      cache_read_input_token_cost_above_272k_tokens: 0.00000022
+      supports_function_calling: true
+      supports_vision: true
+      supports_reasoning: true
+
+  - model_name: gpt-6-sol
+    litellm_params:
+      model: bedrock/converse/us.openai.gpt-6-sol
+      additional_drop_params:
+        - context_management
+        - temperature
+        - top_p
+        - top_k
+    model_info:
+      max_input_tokens: 1050000
+      max_output_tokens: 128000
+      input_cost_per_token: 0.0000022
+      input_cost_per_token_above_272k_tokens: 0.0000044
+      output_cost_per_token: 0.000011
+      output_cost_per_token_above_272k_tokens: 0.0000165
+      cache_creation_input_token_cost: 0.00000275
+      cache_creation_input_token_cost_above_272k_tokens: 0.0000055
+      cache_read_input_token_cost: 0.00000022
+      cache_read_input_token_cost_above_272k_tokens: 0.00000044
+      supports_function_calling: true
+      supports_vision: true
+      supports_reasoning: true
+
+  - model_name: gpt-6-luna
+    litellm_params:
+      model: bedrock/converse/us.openai.gpt-6-luna
+      additional_drop_params:
+        - context_management
+        - temperature
+        - top_p
+        - top_k
+    model_info:
+      max_input_tokens: 1050000
+      max_output_tokens: 128000
+      input_cost_per_token: 0.00000011
+      input_cost_per_token_above_272k_tokens: 0.00000022
+      output_cost_per_token: 0.00000055
+      output_cost_per_token_above_272k_tokens: 0.000000825
+      cache_creation_input_token_cost: 0.0000001375
+      cache_creation_input_token_cost_above_272k_tokens: 0.000000275
+      cache_read_input_token_cost: 0.000000011
+      cache_read_input_token_cost_above_272k_tokens: 0.000000022
+      supports_function_calling: true
+      supports_vision: true
+      supports_reasoning: true
+
   # ============================================================
   # OpenAI API (optional — requires OPENAI_API_KEY in Secrets Manager)
   # ============================================================

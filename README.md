@@ -160,6 +160,9 @@ curl https://<YOUR_CLOUDFRONT_DOMAIN>/chat/completions \
 | `gpt-5.6-sol` | AWS Bedrock (Mantle) | `bedrock_mantle/openai.gpt-5.6-sol` | OpenAI flagship — reasoning + agentic (coding/security/research). Responses API. us-east-1 / us-east-2 |
 | `gpt-5.6-terra` | AWS Bedrock (Mantle) | `bedrock_mantle/openai.gpt-5.6-terra` | Balanced, ~half Sol's cost. + us-west-2 |
 | `gpt-5.6-luna` | AWS Bedrock (Mantle) | `bedrock_mantle/openai.gpt-5.6-luna` | Fastest & cheapest, high-volume. + us-west-2 |
+| `gpt-6.1-sol` | AWS Bedrock (runtime, us. CRIS) | `bedrock/converse/us.openai.gpt-6.1-sol` | GPT-6.1 flagship, 1M ctx. us. profile only |
+| `gpt-6-sol` | AWS Bedrock (runtime, us. CRIS) | `bedrock/converse/us.openai.gpt-6-sol` | GPT-6 flagship, 1.05M ctx |
+| `gpt-6-luna` | AWS Bedrock (runtime, us. CRIS) | `bedrock/converse/us.openai.gpt-6-luna` | GPT-6 fastest & cheapest, 1.05M ctx |
 | `gpt-4o` | OpenAI | `openai/gpt-4o` | Requires API key |
 | `gpt-4o-mini` | OpenAI | `openai/gpt-4o-mini` | Requires API key |
 | `gpt-4.1` | OpenAI | `openai/gpt-4.1` | Requires API key |

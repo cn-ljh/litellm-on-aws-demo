@@ -300,6 +300,9 @@ curl https://<YOUR_CLOUDFRONT_DOMAIN>/chat/completions \
 | `gpt-5.6-sol` | `bedrock_mantle/openai.gpt-5.6-sol` | OpenAI 旗舰 — 前沿推理 + agentic（coding/安全/科研），走 Responses API。us-east-1 / us-east-2 |
 | `gpt-5.6-terra` | `bedrock_mantle/openai.gpt-5.6-terra` | 均衡，约 Sol 一半成本。+ us-west-2 |
 | `gpt-5.6-luna` | `bedrock_mantle/openai.gpt-5.6-luna` | 最快最便宜，高并发。+ us-west-2 |
+| `gpt-6.1-sol` | `bedrock/converse/us.openai.gpt-6.1-sol` | GPT-6.1 旗舰，1M 上下文，仅 us. profile |
+| `gpt-6-sol` | `bedrock/converse/us.openai.gpt-6-sol` | GPT-6 旗舰，1.05M 上下文 |
+| `gpt-6-luna` | `bedrock/converse/us.openai.gpt-6-luna` | GPT-6 最快最便宜，1.05M 上下文 |
 
 > 所有 AWS Bedrock 模型（Claude **和** GPT-5.6）都走 ECS 任务角色 IAM 认证，**无需 API Key**。GPT-5.6 走 `bedrock-mantle` 端点（OpenAI Responses API），任务角色已带 `BedrockMantleAccess` 策略（见 `cfn/04-ecs.yaml`）。
 > **区域说明**：Bedrock 模型 ID 用跨区推理配置文件前缀（`us.`），config 不硬编码区域，模型从注入的 `AWS_REGION_NAME` 继承部署区域。非美国区部署请改前缀（`eu.`/`apac.`）。GPT-5.6 Sol 仅 us-east-1/us-east-2，Terra 与 Luna 另加 us-west-2。
