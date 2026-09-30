@@ -293,6 +293,8 @@ curl https://<YOUR_CLOUDFRONT_DOMAIN>/chat/completions \
 | 调用名称 | 模型 ID | 定位 |
 |----------|---------|------|
 | `claude-opus-5` | `us.anthropic.claude-opus-5` | **最强能力**，1M 上下文 / 128K 输出；adaptive thinking 默认开。拒绝 `temperature`/`top_p`/`top_k`，必须 drop |
+| `claude-opus-5-5` | AWS Bedrock | `us.anthropic.claude-opus-5-5` | Opus 5.5 — 1M 上下文、128K 输出；adaptive thinking 常开。需 drop `temperature`/`top_p`/`top_k`。价格手工注入（v1.103.1 cost map 未收录） |
+| `claude-sonnet-5-5` | AWS Bedrock | `global.anthropic.claude-sonnet-5-5` | Sonnet 5.5 — 1M 上下文、128K 输出。**仅 Global CRIS**（无 us. profile），注意数据驻留 |
 | `claude-sonnet-4-6` | `us.anthropic.claude-sonnet-4-6` | **性价比最优，推荐** |
 | `claude-haiku-4-5` | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | 最快最便宜 |
 | `gpt-5.6-sol` | `bedrock_mantle/openai.gpt-5.6-sol` | OpenAI 旗舰 — 前沿推理 + agentic（coding/安全/科研），走 Responses API。us-east-1 / us-east-2 |
@@ -583,9 +585,9 @@ aws ecs describe-task-definition --task-definition <PROJECT_NAME>-task \
   --query 'taskDefinition.containerDefinitions[0].image' --output text --region <YOUR_REGION>
 
 # 2. 指定目标版本重跑 deploy.sh（只更新 ECS 栈）
-#    tag 命名：1.84+ 用裸 tag "v1.95.0"；<= 1.83.x 用 "main-v1.83.7-stable"。
+#    tag 命名：1.84+ 用裸 tag "v1.103.1"；<= 1.83.x 用 "main-v1.83.7-stable"。
 #    deploy.sh 两种都处理。不设 LITELLM_VERSION 则自动检测最新 stable。
-LITELLM_VERSION=v1.95.0 ./deploy.sh
+LITELLM_VERSION=v1.103.1 ./deploy.sh
 
 # 3. 滚动完成后验证（ECS 滚动替换零停机：minHealthy=100%，max=200%）
 curl -s https://<YOUR_ENDPOINT>/health/readiness   # -> {"status":"healthy","db":"connected"}

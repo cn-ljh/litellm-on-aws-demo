@@ -153,6 +153,8 @@ curl https://<YOUR_CLOUDFRONT_DOMAIN>/chat/completions \
 | Model Name | Provider | Model ID | Notes |
 |-----------|----------|----------|-------|
 | `claude-opus-5` | AWS Bedrock | `us.anthropic.claude-opus-5` | **Most capable** — 1M context, 128K output; adaptive thinking on by default. Rejects `temperature`/`top_p`/`top_k` (must be dropped) |
+| `claude-opus-5-5` | AWS Bedrock | `us.anthropic.claude-opus-5-5` | Opus 5.5 — 1M context, 128K output; adaptive thinking always on. Drops `temperature`/`top_p`/`top_k`. Prices injected manually (not in cost map as of v1.103.1) |
+| `claude-sonnet-5-5` | AWS Bedrock | `global.anthropic.claude-sonnet-5-5` | Sonnet 5.5 — 1M context, 128K output. **Global CRIS only** (no Geo profile) — mind data residency |
 | `claude-sonnet-4-6` | AWS Bedrock | `us.anthropic.claude-sonnet-4-6` | **Best value** |
 | `claude-haiku-4-5` | AWS Bedrock | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | Fastest & cheapest |
 | `gpt-5.6-sol` | AWS Bedrock (Mantle) | `bedrock_mantle/openai.gpt-5.6-sol` | OpenAI flagship — reasoning + agentic (coding/security/research). Responses API. us-east-1 / us-east-2 |
@@ -559,9 +561,9 @@ aws ecs describe-task-definition --task-definition <PROJECT_NAME>-task \
   --query 'taskDefinition.containerDefinitions[0].image' --output text --region <YOUR_REGION>
 
 # 2. Pin a target version and re-run deploy.sh (updates the ECS stack only)
-#    Tag naming: 1.84+ uses a bare tag "v1.95.0"; <= 1.83.x used "main-v1.83.7-stable".
+#    Tag naming: 1.84+ uses a bare tag "v1.103.1"; <= 1.83.x used "main-v1.83.7-stable".
 #    deploy.sh handles both. Omit LITELLM_VERSION to auto-detect the latest stable.
-LITELLM_VERSION=v1.95.0 ./deploy.sh
+LITELLM_VERSION=v1.103.1 ./deploy.sh
 
 # 3. Verify after rollout (ECS rolling replace is zero-downtime: minHealthy=100%, max=200%)
 curl -s https://<YOUR_ENDPOINT>/health/readiness   # -> {"status":"healthy","db":"connected"}
