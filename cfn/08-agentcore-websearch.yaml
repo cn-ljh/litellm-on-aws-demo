@@ -2,8 +2,8 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   AgentCore Web Search Tool gateway for LiteLLM (AWS_IAM inbound auth).
   Exposes Amazon Bedrock AgentCore managed Web Search as an MCP tool that
-  LiteLLM connects to via SigV4 signed with the ECS task role. Coexists with
-  the self-hosted SearXNG MCP (07-searxng-mcp.yaml); does not replace it.
+  LiteLLM connects to via SigV4 signed with the ECS task role. This is the
+  gateway's default web-search tool.
 
 Parameters:
   ProjectName:

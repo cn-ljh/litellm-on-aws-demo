@@ -240,9 +240,6 @@ Required only if using non-Bedrock providers:
 | `AURORA_ENGINE_VERSION` | *(template default `16.8`, PG16 LTS)* | Override Aurora PostgreSQL engine version if `16.8` is unavailable in your region |
 | `DEPLOY_AGENTCORE` | `1` *(on)* | Deploy AgentCore Web Search (managed web search, `cfn/08`) and register it in LiteLLM. Docker-free, no API keys, **on by default**. Only effective in `us-east-1` (skipped with a warning elsewhere). Set `0` to skip |
 | `SKIP_AGENTCORE_SYNC` | `0` | With `DEPLOY_AGENTCORE=1`, set `1` to deploy `cfn/08` only and register the MCP server later |
-| `DEPLOY_SEARXNG` | `0` | Set `1` to also build/push the SearXNG images, deploy `cfn/07`, and register the `searxng-web_search` MCP (requires Docker) |
-| `SEARXNG_IMAGE_TAG` | `v1` | Image tag for the SearXNG + MCP server images |
-| `SKIP_SEARXNG_SYNC` | `0` | With `DEPLOY_SEARXNG=1`, set `1` to skip the post-deploy MCP registration |
 
 ```bash
 # Deploy with custom parameters
@@ -250,9 +247,6 @@ PROJECT_NAME=my-llm-gw TENANT_NAME=myteam AWS_REGION=us-west-2 ./deploy.sh
 
 # Override Aurora engine version (e.g. region without 16.8)
 AURORA_ENGINE_VERSION=15.5 ./deploy.sh
-
-# One-shot deploy including the self-hosted SearXNG web-search MCP module
-DEPLOY_SEARXNG=1 ./deploy.sh
 
 # Skip the (default-on) AgentCore Web Search step
 DEPLOY_AGENTCORE=0 ./deploy.sh
@@ -270,7 +264,6 @@ DEPLOY_AGENTCORE=0 ./deploy.sh
 | 4. ECS | ~3-5 min | ECS Fargate, ALB, IAM, CloudWatch |
 | 5. CloudFront | ~3-5 min | CloudFront (HTTPS) |
 | 6. AgentCore Web Search *(default on, `us-east-1`)* | ~2-3 min | AgentCore Gateway + web-search target + service role + task-role grant + LiteLLM MCP registration |
-| 7. SearXNG MCP *(optional, `DEPLOY_SEARXNG=1`)* | ~5-8 min | ECR images, Fargate service, Cloud Map DNS, MCP registration |
 
 ### Configure Provider API Keys (Optional)
 
@@ -618,15 +611,14 @@ For a canary before promoting a version to all traffic, run a second ECS service
 
 ---
 
-## MCP Gateway (Tavily + Exa + SearXNG + AgentCore Web Search)
+## MCP Gateway (Tavily + Exa + AgentCore Web Search)
 
-LiteLLM Proxy doubles as an **MCP Gateway** that exposes search tools (Tavily, Exa, self-hosted SearXNG, AgentCore Web Search) to all clients via a single endpoint. Clients no longer need their own search API keys.
+LiteLLM Proxy doubles as an **MCP Gateway** that exposes search tools (Tavily, Exa, AgentCore Web Search) to all clients via a single endpoint. Clients no longer need their own search API keys.
 
 ### Available tools
 
 - `tavily-tavily_search`, `tavily-tavily_extract`, `tavily-tavily_crawl`, `tavily-tavily_map`, `tavily-tavily_research`
 - `exa-web_search_exa`, `exa-web_fetch_exa`
-- `searxng-web_search` (self-hosted, no API key / no quota)
 - `web-search-tool___WebSearch` (AgentCore managed web search, deployed by default; no API key)
 
 ### Client usage
@@ -731,65 +723,6 @@ LiteLLM 1.85.2 has a bug where yaml-loaded `mcp_servers` are not picked up by th
 > - `auth_type: bearer_token` does not persist `authentication_token` — use `static_headers: {Authorization: "Bearer <KEY>"}` instead.
 > - `GET /v1/mcp/server` echoes `static_headers` API keys in plaintext — keep your master key tightly controlled.
 
-### SearXNG: self-hosted web search (no API key)
-
-`searxng-web_search` is backed by a **self-hosted SearXNG metasearch instance** running as a standalone ECS Fargate service in the same cluster (`searxng-mcp`), so web search keeps working with zero external API cost/quota.
-
-**Architecture** (`cfn/07-searxng-mcp.yaml` + `searxng-mcp/`):
-
-```
-LiteLLM tasks ──(Cloud Map private DNS: searxng-mcp.litellm-gw.internal:8000/mcp)──▶
-  searxng-mcp task (Fargate, private subnets, no public IP)
-    ├── mcp container   : Python FastMCP, streamable-HTTP, stateless (any replica works)
-    └── searxng container: searxng/searxng with formats:[html,json], limiter off
-        └── localhost:8080 inside the task; queries public engines via NAT
-```
-
-- **One task, two containers** — the MCP server calls SearXNG over `localhost:8080`; only port 8000 (MCP) is exposed outside the task.
-- **Service discovery**: Cloud Map private DNS namespace `litellm-gw.internal` (A records, TTL 10s). LiteLLM is *not* modified — it just resolves the internal hostname. No ALB involved, traffic never leaves the VPC.
-- **Security group** `searxng-mcp` (least privilege, no `0.0.0.0/0` ingress):
-  - ingress: tcp/8000 from the LiteLLM task SG only
-  - egress: tcp/443 only (search engines via NAT, ECR pull, CloudWatch Logs)
-- **No auth on the MCP endpoint by design**: the SG is the auth boundary (only LiteLLM tasks can connect). LiteLLM-side virtual-key auth still applies to clients.
-- **Secrets**: `litellm/<TENANT>/searxng-secret` (auto-generated `server.secret_key`); no search API keys needed.
-
-**Deploy / update:**
-
-> **One-shot:** `DEPLOY_SEARXNG=1 ./deploy.sh` does all of the steps below automatically — creates the ECR repos, builds & pushes the ARM64 images, deploys `cfn/07` (resolving VpcId/private subnets from the VPC stack), and registers the MCP server against the CloudFront endpoint. The manual steps below are for standalone/iterative updates.
-
-```bash
-# 1. Create the ECR repositories (one-time; skip if they already exist)
-aws ecr create-repository --repository-name litellm-gw/searxng --region us-east-1
-aws ecr create-repository --repository-name litellm-gw/searxng-mcp --region us-east-1
-
-# 2. Build & push images (ARM64)
-aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com
-docker build -t <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/litellm-gw/searxng:v1 searxng-mcp/searxng/
-docker build -t <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/litellm-gw/searxng-mcp:v1 searxng-mcp/server/
-docker push <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/litellm-gw/searxng:v1
-docker push <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/litellm-gw/searxng-mcp:v1
-
-# 3. Deploy the stack
-#    The LiteLLM task SG is imported automatically from the ECS stack
-#    (export "<PROJECT_NAME>-ECSSecurityGroup"), so no SG param is needed.
-#    Cluster name and Cloud Map namespace are derived from ProjectName.
-aws cloudformation create-stack --stack-name litellm-gw-searxng-mcp \
-  --template-body file://cfn/07-searxng-mcp.yaml \
-  --capabilities CAPABILITY_NAMED_IAM \
-  --parameters ParameterKey=ProjectName,ParameterValue=litellm-gw \
-    ParameterKey=VpcId,ParameterValue=<VPC> \
-    "ParameterKey=PrivateSubnetIds,ParameterValue='<SUBNET1>,<SUBNET2>'" \
-    ParameterKey=SearxngImage,ParameterValue=<ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/litellm-gw/searxng:v1 \
-    ParameterKey=McpImage,ParameterValue=<ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/litellm-gw/searxng-mcp:v1
-
-# 4. Register to LiteLLM DB (idempotent)
-LITELLM_PROXY_URL=https://your-domain ./scripts/sync-searxng-mcp.sh
-```
-
-> Note: the SearXNG container reads `/etc/searxng/settings.yml` baked into the image (JSON output format must be explicitly enabled — the stock image only serves HTML). The MCP server runs `stateless_http=true` so LiteLLM's per-request MCP client needs no session affinity.
-
----
-
 ### AgentCore Web Search: managed web search (default on, no API key)
 
 Amazon Bedrock AgentCore went GA on 2026-06-17 with a fully managed, MCP-compliant Web Search tool: Amazon's own continuously-updated index, queries never leave AWS, zero infrastructure, no API keys. The repo wires it in via `cfn/08-agentcore-websearch.yaml` and **`deploy.sh` deploys + registers it by default** (`DEPLOY_AGENTCORE=1`). It coexists with the self-hosted SearXNG MCP; it does not replace it. **`us-east-1` only.**
@@ -823,7 +756,9 @@ curl -s -X POST https://<cloudfront-domain>/v1/responses \
        "tools":[{"type":"mcp","server_label":"agentcore_websearch","server_url":"litellm_proxy","require_approval":"never"}]}'
 ```
 
-The tool appears in LiteLLM as `web-search-tool___WebSearch`, alongside SearXNG's `web_search`, Tavily, and Exa.
+The tool appears in LiteLLM as `web-search-tool___WebSearch`, alongside Tavily and Exa. It is the recommended default web-search tool.
+
+> **Why no self-hosted SearXNG?** An earlier version shipped a self-hosted SearXNG MCP (`cfn/07`). It was removed: public engines (Google/Startpage/Brave/DuckDuckGo) block or CAPTCHA AWS egress IPs at the ASN level, so results were mostly empty, and changing the NAT EIP does not help.
 
 ---
 
@@ -839,7 +774,7 @@ aws s3 rm s3://<PROJECT_NAME>-config-<ACCOUNT_ID> --recursive --region <YOUR_REG
 
 # 3. Delete stacks in reverse order (optional modules first - cfn/08 attaches a
 #    policy to the ECS task role, so it must be removed before the ECS stack)
-for stack in <PROJECT_NAME>-agentcore-websearch <PROJECT_NAME>-searxng-mcp <PROJECT_NAME>-cloudfront <PROJECT_NAME>-ecs <PROJECT_NAME>-data <PROJECT_NAME>-secrets <PROJECT_NAME>-vpc; do
+for stack in <PROJECT_NAME>-agentcore-websearch <PROJECT_NAME>-cloudfront <PROJECT_NAME>-ecs <PROJECT_NAME>-data <PROJECT_NAME>-secrets <PROJECT_NAME>-vpc; do
   aws cloudformation delete-stack --stack-name $stack --region <YOUR_REGION> 2>/dev/null || true
   aws cloudformation wait stack-delete-complete --stack-name $stack --region <YOUR_REGION> 2>/dev/null || true
   echo "Deleted: $stack"
@@ -883,18 +818,14 @@ litellm-on-aws/
 │   ├── 03-data.yaml             # Aurora, Valkey, S3
 │   ├── 04-ecs.yaml              # ECS, ALB, IAM
 │   ├── 05-cloudfront.yaml       # CloudFront
-│   ├── 07-searxng-mcp.yaml      # SearXNG MCP web-search service (optional, Docker)
 │   └── 08-agentcore-websearch.yaml  # AgentCore managed web search (default on, us-east-1)
 ├── config/
 │   ├── litellm-config.yaml      # Model routing config
 │   └── callbacks/
 │       └── bedrock_ctx_stripper.py  # Strips context_management for Bedrock
-├── searxng-mcp/                 # SearXNG + MCP server container sources
-│   ├── searxng/
-│   └── server/
 ├── scripts/
 │   ├── sync-mcp-servers.sh      # Register Tavily/Exa MCP servers
-│   └── sync-searxng-mcp.sh      # Register SearXNG MCP server
+│   └── sync-agentcore-websearch.sh  # Register AgentCore Web Search MCP server
 ├── deploy.sh                    # Deployment script
 ├── README.md                    # English
 └── README_CN.md                 # 中文
@@ -911,15 +842,6 @@ litellm-on-aws/
 If your account is in an AWS Organization whose Service Control Policy denies `s3:PutEncryptionConfiguration`, the `*-data` stack fails to create **and** to delete the `ConfigBucket` (403 explicit deny), because CloudFormation calls `PutBucketEncryption` for the `BucketEncryption` property.
 
 **Fix:** remove the `BucketEncryption` block from `cfn/03-data.yaml` (`ConfigBucket`). S3 buckets are AES256-encrypted by default since Jan 2023, so the bucket stays encrypted. If a stack is already stuck in `DELETE_FAILED`, empty all object **versions** first (`aws s3api delete-object --version-id ...` for every version and delete marker, since versioning is enabled), then re-run the stack delete.
-
-</details>
-
-<details>
-<summary><b><code>DEPLOY_SEARXNG=1</code> build fails: SearXNG base image "not found"</b></summary>
-
-Upstream `searxng/searxng` only publishes rolling date-stamped tags (e.g. `2026.6.22-<sha>`) and prunes old ones, so a tag pinned in the Dockerfile can disappear from Docker Hub and break the build.
-
-**Fix:** update `FROM searxng/searxng:<tag>` in `searxng-mcp/searxng/Dockerfile` to a current tag (confirm it includes `linux/arm64` via `docker buildx imagetools inspect searxng/searxng:<tag>`), or pin to an immutable digest `searxng/searxng@sha256:<digest>`.
 
 </details>
 

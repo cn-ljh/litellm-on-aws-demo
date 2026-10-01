@@ -161,9 +161,6 @@ PROJECT_NAME=my-llm-gw TENANT_NAME=myteam AWS_REGION=us-west-2 ./deploy.sh
 # 覆盖 Aurora 引擎版本（某区域没有默认的 16.8 时）
 AURORA_ENGINE_VERSION=15.5 ./deploy.sh
 
-# 一键部署并集成自建 SearXNG web search MCP 模块（需要 Docker）
-DEPLOY_SEARXNG=1 ./deploy.sh
-
 # 不部署 AgentCore Web Search（默认会部署，见下）
 DEPLOY_AGENTCORE=0 ./deploy.sh
 ```
@@ -175,9 +172,6 @@ DEPLOY_AGENTCORE=0 ./deploy.sh
 | `AURORA_ENGINE_VERSION` | 模板默认 `16.8`（PG16 LTS） | 覆盖 Aurora 引擎版本（某区域无 16.8 时用） |
 | `DEPLOY_AGENTCORE` | `1`（开） | 部署 AgentCore Web Search（托管 web search，`cfn/08`）并注册进 LiteLLM。Docker-free、无需 API key，**默认开启**。仅 `us-east-1` 生效，其它区自动跳过。设 `0` 关闭 |
 | `SKIP_AGENTCORE_SYNC` | `0` | `DEPLOY_AGENTCORE=1` 时，设 `1` 只建 `cfn/08` 栈、稍后再手动注册 MCP server |
-| `DEPLOY_SEARXNG` | `0`（关） | 额外构建并部署自建 SearXNG MCP 模块（**需要 Docker**） |
-| `SEARXNG_IMAGE_TAG` | `v1` | SearXNG 镜像 tag |
-| `SKIP_SEARXNG_SYNC` | `0` | `DEPLOY_SEARXNG=1` 时，设 `1` 跳过部署后的 MCP 注册 |
 
 ### AgentCore Web Search Tool（托管 web search，默认部署）
 
@@ -203,7 +197,11 @@ GATEWAY_ID=litellm-websearch-gw-xxxxxxxx \
   ./scripts/sync-agentcore-websearch.sh
 ```
 
-LiteLLM 里工具名为 `web-search-tool___WebSearch`，与 SearXNG 的 `web_search`、Tavily、Exa 并列。客户端验证（模型自主调用）：
+LiteLLM 里工具名为 `web-search-tool___WebSearch`，与 Tavily、Exa 并列，是推荐的默认 web search 工具。
+
+> **为什么不再提供自建 SearXNG？** 早期版本带了自建 SearXNG MCP（`cfn/07`），现已移除：Google/Startpage/Brave/DuckDuckGo 等公共引擎按 ASN 封禁/CAPTCHA AWS 出口 IP，结果基本为空，换 NAT EIP 也无效。
+
+客户端验证（模型自主调用）：
 ```bash
 curl -s -X POST https://<cloudfront域名>/v1/responses \
   -H "Authorization: Bearer <master_key>" -H "Content-Type: application/json" \
@@ -211,7 +209,7 @@ curl -s -X POST https://<cloudfront域名>/v1/responses \
        "tools":[{"type":"mcp","server_label":"agentcore_websearch","server_url":"litellm_proxy","require_approval":"never"}]}'
 ```
 
-部署过程分 6 个阶段（Step 7 SearXNG 可选、需 Docker）：
+部署过程分以下阶段：
 
 | 阶段 | 耗时 | 创建的资源 |
 |------|------|-----------|
@@ -221,7 +219,6 @@ curl -s -X POST https://<cloudfront域名>/v1/responses \
 | 4. 应用层 | ~3-5 分钟 | ECS、ALB、Auto Scaling、IAM |
 | 5. CDN 层 | ~3-5 分钟 | CloudFront |
 | 6. AgentCore Web Search *(默认开，`us-east-1`)* | ~2-3 分钟 | AgentCore Gateway + Web Search target + service role + task role 授权 + LiteLLM MCP 注册 |
-| 7. SearXNG MCP *(可选 `DEPLOY_SEARXNG=1`，需 Docker)* | ~5-8 分钟 | ECR 镜像、Fargate 服务、Cloud Map DNS、MCP 注册 |
 
 部署完成后，脚本会输出：
 - ✅ CloudFront HTTPS 地址
@@ -661,7 +658,7 @@ aws rds modify-db-cluster --db-cluster-identifier <PROJECT_NAME>-aurora-cluster 
 aws s3 rm s3://<PROJECT_NAME>-config-<ACCOUNT_ID> --recursive --region <YOUR_REGION>
 
 # 3. 按逆序删除堆栈（可选模块先删 —— cfn/08 给 ECS task role 挂了 policy，须在 ECS 栈之前删）
-for stack in <PROJECT_NAME>-agentcore-websearch <PROJECT_NAME>-searxng-mcp <PROJECT_NAME>-cloudfront <PROJECT_NAME>-ecs <PROJECT_NAME>-data <PROJECT_NAME>-secrets <PROJECT_NAME>-vpc; do
+for stack in <PROJECT_NAME>-agentcore-websearch <PROJECT_NAME>-cloudfront <PROJECT_NAME>-ecs <PROJECT_NAME>-data <PROJECT_NAME>-secrets <PROJECT_NAME>-vpc; do
   aws cloudformation delete-stack --stack-name $stack --region <YOUR_REGION> 2>/dev/null || true
   aws cloudformation wait stack-delete-complete --stack-name $stack --region <YOUR_REGION> 2>/dev/null || true
   echo "已删除: $stack"
@@ -692,12 +689,6 @@ done
 **根因**：账户在某 AWS Organization 下、其 SCP 拒绝了 `s3:PutEncryptionConfiguration`。`*-data` 栈的 `ConfigBucket` 带 `BucketEncryption` 属性，CloudFormation 创建/删除桶时会调 `PutBucketEncryption` → 403 显式拒绝，导致建栈失败、删栈也失败（`DELETE_FAILED`）。
 
 **解决**：删掉 `cfn/03-data.yaml` 里 `ConfigBucket` 的 `BucketEncryption` 块即可（S3 自 2023-01 起默认 AES256 加密，桶仍然加密）。若栈已卡在 `DELETE_FAILED`，先清空桶的所有**版本**（桶开了 versioning，需对每个 version 和 delete marker 跑 `aws s3api delete-object --version-id ...`），再重试删栈。
-
-### Q: `DEPLOY_SEARXNG=1` 时 SearXNG 镜像 build 报 base 镜像 `not found`
-
-**根因**：上游 `searxng/searxng` 只保留滚动日期 tag（如 `2026.6.22-<sha>`）并定期清理旧 tag，所以 Dockerfile 里 pin 的旧 tag 可能从 Docker Hub 消失。
-
-**解决**：把 `searxng-mcp/searxng/Dockerfile` 的 `FROM searxng/searxng:<tag>` 改成一个当前可用的 tag（`docker buildx imagetools inspect searxng/searxng:<tag>` 确认含 `linux/arm64`），或 pin 到不可变 digest `searxng/searxng@sha256:<digest>`。
 
 ### Q: 升级到 1.84+ 后，ECS task 启动后 child process 反复 die
 
@@ -886,14 +877,12 @@ litellm-on-aws-demo/
 │   ├── 02-secrets.yaml          # 密钥管理
 │   ├── 03-data.yaml             # Aurora、Valkey、S3
 │   ├── 04-ecs.yaml              # ECS、ALB、Auto Scaling、IAM
-│   └── 05-cloudfront.yaml       # CloudFront
-│   ├── 07-searxng-mcp.yaml      # SearXNG MCP web search（可选，需 Docker）
+│   ├── 05-cloudfront.yaml       # CloudFront
 │   └── 08-agentcore-websearch.yaml  # AgentCore 托管 web search（默认开，us-east-1）
 ├── config/
 │   └── litellm-config.yaml      # 模型路由配置
 ├── scripts/
 │   ├── sync-mcp-servers.sh           # 注册 Tavily + Exa MCP
-│   ├── sync-searxng-mcp.sh           # 注册 SearXNG MCP
 │   └── sync-agentcore-websearch.sh   # 注册 AgentCore Web Search MCP
 ├── deploy.sh                    # 一键部署脚本
 ├── README.md                    # English

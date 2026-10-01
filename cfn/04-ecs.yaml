@@ -10,7 +10,7 @@ Parameters:
     Default: default
   LiteLLMImage:
     Type: String
-    Default: ghcr.io/berriai/litellm:v1.85.2
+    Default: ghcr.io/berriai/litellm:v1.103.1
   TaskCpu:
     Type: String
     Default: "512"
@@ -368,6 +368,22 @@ Resources:
               Value: !Ref AWS::Region
             - Name: AWS_REGION_NAME
               Value: !Ref AWS::Region
+            # bedrock_ctx_stripper.py feature flags (see config/callbacks/).
+            # Prompt-cache TTL promotion 5m->1h: OFF. 1h cache writes cost 2.0x vs
+            # 1.25x for 5m; only pays off when the same prefix is re-read within
+            # the hour. Flip to "true" only after checking cost_breakdown.
+            - Name: CACHE_TTL_PROMOTE_ENABLED
+              Value: "false"
+            - Name: CACHE_TTL_PROMOTE_MODELS
+              Value: claude-fable-5
+            - Name: CACHE_TTL_PROMOTE_TARGET
+              Value: 1h
+            # Strip reasoning.summary for GPT-6 Astra on bedrock_mantle (mantle
+            # only accepts absent/"auto"; anything else -> HTTP 500).
+            - Name: MANTLE_DROP_REASONING_SUMMARY_ENABLED
+              Value: "true"
+            - Name: MANTLE_DROP_REASONING_SUMMARY_MODELS
+              Value: astra
           Secrets:
             - Name: DATABASE_PASSWORD
               ValueFrom: !Sub
@@ -506,7 +522,7 @@ Outputs:
       Name: !Sub "${ProjectName}-ECSServiceName"
   ECSSecurityGroupId:
     Value: !Ref ECSSecurityGroup
-    Description: "Security group of the LiteLLM ECS tasks (consumed by searxng-mcp stack)"
+    Description: "Security group of the LiteLLM ECS tasks (exported for add-on stacks that need to allow ingress from LiteLLM)"
     Export:
       Name: !Sub "${ProjectName}-ECSSecurityGroup"
   ECSTaskRoleName:

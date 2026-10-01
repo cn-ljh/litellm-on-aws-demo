@@ -3,7 +3,7 @@
 #
 # 这是 AWS Bedrock AgentCore 托管的 Web Search 工具（GA 2026-06-17），通过
 # AgentCore Gateway 暴露为 MCP，LiteLLM 用 auth_type=aws_sigv4 + ECS task role
-# 签名调用。与自建 SearXNG MCP (sync-searxng-mcp.sh) 并存，不替换。
+# 签名调用。网关默认的 web search 工具。
 #
 # 前置条件：
 #   - 已部署 cfn/08-agentcore-websearch.yaml（或等价的命令式资源）
