@@ -57,7 +57,8 @@ model_list:
   # Claude Sonnet 5.5 — GA 2026-09-28. 1M context / 128K output.
   # ⚠️ Only available via the Global CRIS profile (no us./eu. Geo profile yet) —
   #    requests may be served outside your geography; mind data-residency needs.
-  # Prices injected manually (not in LiteLLM cost map as of v1.103.1).
+  # Prices injected manually (not in LiteLLM cost map as of v1.103.1);
+  # global list: $2/$10, cache write $2.50, cache read $0.10.
   - model_name: claude-sonnet-5-5
     litellm_params:
       model: bedrock/global.anthropic.claude-sonnet-5-5
@@ -72,7 +73,33 @@ model_list:
       input_cost_per_token: 0.000002
       output_cost_per_token: 0.00001
       cache_creation_input_token_cost: 0.0000025
-      cache_read_input_token_cost: 0.0000002
+      cache_read_input_token_cost: 0.0000001
+      supports_function_calling: true
+      supports_vision: true
+      supports_prompt_caching: true
+      supports_reasoning: true
+
+  # Claude Haiku 5.5 — GA 2026-10-07. 1M context / 128K output, adaptive
+  # thinking on by default (can be disabled). Both us. and global. profiles
+  # exist; us. Geo CRIS used here (same as Opus 5.5).
+  # Prices injected manually (not in LiteLLM cost map as of v1.103.1):
+  # US Geo tier $0.11/$0.55, cache write $0.1375, cache read $0.011
+  # (global tier is $0.10/$0.50). >200K long-context pricing not modeled.
+  - model_name: claude-haiku-5-5
+    litellm_params:
+      model: bedrock/us.anthropic.claude-haiku-5-5
+      additional_drop_params:
+        - context_management
+        - temperature
+        - top_p
+        - top_k
+    model_info:
+      max_input_tokens: 1000000
+      max_output_tokens: 128000
+      input_cost_per_token: 0.00000011
+      output_cost_per_token: 0.00000055
+      cache_creation_input_token_cost: 0.0000001375
+      cache_read_input_token_cost: 0.000000011
       supports_function_calling: true
       supports_vision: true
       supports_prompt_caching: true

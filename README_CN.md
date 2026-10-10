@@ -293,6 +293,7 @@ curl https://<YOUR_CLOUDFRONT_DOMAIN>/chat/completions \
 | `claude-opus-5-5` | AWS Bedrock | `us.anthropic.claude-opus-5-5` | Opus 5.5 — 1M 上下文、128K 输出；adaptive thinking 常开。需 drop `temperature`/`top_p`/`top_k`。价格手工注入（v1.103.1 cost map 未收录） |
 | `claude-sonnet-5-5` | AWS Bedrock | `global.anthropic.claude-sonnet-5-5` | Sonnet 5.5 — 1M 上下文、128K 输出。**仅 Global CRIS**（无 us. profile），注意数据驻留 |
 | `claude-sonnet-4-6` | `us.anthropic.claude-sonnet-4-6` | **性价比最优，推荐** |
+| `claude-haiku-5-5` | AWS Bedrock | `us.anthropic.claude-haiku-5-5` | Haiku 5.5 — 1M 上下文、128K 输出，5.5 代最便宜 |
 | `claude-haiku-4-5` | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | 最快最便宜 |
 | `gpt-5.6-sol` | `bedrock_mantle/openai.gpt-5.6-sol` | OpenAI 旗舰 — 前沿推理 + agentic（coding/安全/科研），走 Responses API。us-east-1 / us-east-2 |
 | `gpt-5.6-terra` | `bedrock_mantle/openai.gpt-5.6-terra` | 均衡，约 Sol 一半成本。+ us-west-2 |

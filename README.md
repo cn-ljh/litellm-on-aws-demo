@@ -156,6 +156,7 @@ curl https://<YOUR_CLOUDFRONT_DOMAIN>/chat/completions \
 | `claude-opus-5-5` | AWS Bedrock | `us.anthropic.claude-opus-5-5` | Opus 5.5 — 1M context, 128K output; adaptive thinking always on. Drops `temperature`/`top_p`/`top_k`. Prices injected manually (not in cost map as of v1.103.1) |
 | `claude-sonnet-5-5` | AWS Bedrock | `global.anthropic.claude-sonnet-5-5` | Sonnet 5.5 — 1M context, 128K output. **Global CRIS only** (no Geo profile) — mind data residency |
 | `claude-sonnet-4-6` | AWS Bedrock | `us.anthropic.claude-sonnet-4-6` | **Best value** |
+| `claude-haiku-5-5` | AWS Bedrock | `us.anthropic.claude-haiku-5-5` | Haiku 5.5 — 1M context, 128K output, cheapest 5.5-gen model |
 | `claude-haiku-4-5` | AWS Bedrock | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | Fastest & cheapest |
 | `gpt-5.6-sol` | AWS Bedrock (Mantle) | `bedrock_mantle/openai.gpt-5.6-sol` | OpenAI flagship — reasoning + agentic (coding/security/research). Responses API. us-east-1 / us-east-2 |
 | `gpt-5.6-terra` | AWS Bedrock (Mantle) | `bedrock_mantle/openai.gpt-5.6-terra` | Balanced, ~half Sol's cost. + us-west-2 |
